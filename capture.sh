@@ -20,18 +20,25 @@ import json,os
 old={}
 if os.path.exists('manifest/plugins.json'):
     old={p['id']:p for p in json.load(open('manifest/plugins.json'))}
-rows=[]; lost=[]
+rows=[]; lost=[]; unavailable=[]
 for p in json.load(open('/tmp/bb-cap-plugins.json'))['plugins']:
     pid,s=p['id'],p['source']
     if s.startswith('builtin:'):
         continue                      # ships with the app, nothing to record
     prev=old.get(pid,{})
+    # Carry forward a hand-written availability note. It records a fact about the
+    # upstream source (private, renamed, untagged) that a re-snapshot cannot
+    # rediscover, so it must survive or the row would silently try to install.
+    if prev.get('unavailable'):
+        prev['enabled']=p['enabled']
+        rows.append(prev); unavailable.append(pid); continue
     if s.startswith('path:'):
         remote=prev.get('source') or prev.get('bundled')
         if remote:
             print('  ~ %s still installs from a local path (%s); keeping %s'%(pid,s,remote))
             r={'id':pid,'source':remote,'enabled':p['enabled']}
             if prev.get('subdirectory'): r['subdirectory']=prev['subdirectory']
+            if prev.get('note'): r['note']=prev['note']
             rows.append(r); continue
         print('  ! %s installs from a local path with no recorded source: %s'%(pid,s))
         print('    it will NOT be reproducible on another machine. Fix one of:')
@@ -41,9 +48,25 @@ for p in json.load(open('/tmp/bb-cap-plugins.json'))['plugins']:
     rows.append({'id':pid,'source':s,'enabled':p['enabled']})
 rows.sort(key=lambda r:(not r['enabled'], r['id']))
 json.dump(rows,open('manifest/plugins.json','w'),indent=2)
-print('  %d plugins recorded'%len(rows))
+print('  %d plugins recorded (%d marked unavailable: %s)'%(len(rows),len(unavailable),', '.join(unavailable) or 'none'))
 if lost:
     print('  !! %d plugin(s) need a source before this snapshot is portable: %s'%(len(lost),', '.join(lost)))
+PY
+
+step "builtin plugins that are switched off"
+bb plugin list --json > /tmp/bb-cap-bpl.json
+python3 - <<'PY'
+import json
+ps=json.load(open('/tmp/bb-cap-bpl.json'))['plugins']
+disabled=sorted(p['id'] for p in ps if p['source'].startswith('builtin:') and not p['enabled'])
+out={
+ "_comment": ("Builtin plugins switched off on the source machine. Only exceptions are "
+              "listed, so a future bb release that adds builtins is left at its own "
+              "default. Apply with: bb plugin disable <id>."),
+ "disabled": disabled,
+}
+json.dump(out,open('manifest/builtin-plugins.json','w'),indent=2)
+print('  %d builtin(s) switched off: %s'%(len(disabled),', '.join(disabled) or 'none'))
 PY
 
 step "bb settings"

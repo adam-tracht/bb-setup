@@ -16,6 +16,25 @@ Captured from bb 0.44.0. Exact tool versions are recorded in `manifest/versions.
 - A personal `CLAUDE.md`, hooks, reference docs, statusline, and skill sync
 - opencode provider config and an opencodex proxy config, with API keys redacted
 
+## Plugins with sources that are not publicly reachable
+
+Four entries install only where the upstream repository is reachable, so they are
+skipped elsewhere and reported as a note rather than a failure. Each carries an
+`unavailable` reason in `manifest/plugins.json`.
+
+| Plugin | Reason |
+| --- | --- |
+| `agent-enrichment` | Source repository is private |
+| `thread-hover-preview` | Source repository is private |
+| `ios-notifications` | Upstream repository is no longer reachable |
+| `project-header-breadcrumb` | Upstream repository was renamed and the plugin path no longer exists |
+
+A fifth, `next-steps`, is disabled and pinned to `main` because upstream publishes
+no release tags for a semver range to resolve against.
+
+Fixing any of these means repointing its `source` at a reachable repository.
+`bootstrap.sh` reports what was skipped; `verify.sh` lists the same set.
+
 ## Plugins that install unconfigured
 
 Some plugins install and run but have nothing to act on until a machine-specific
@@ -46,13 +65,29 @@ The alternative, enrolling a machine against an existing server, is described in
 `docs/second-machine.md`. It requires far less work and inherits threads and
 history, at the cost of depending on the server machine staying awake.
 
+## Platform support
+
+Tested on macOS. The scripts are POSIX shell plus `python3`, and the two
+platform-specific commands they used (`rsync`, BSD `stat`) have been replaced
+with portable equivalents, so Linux works as well.
+
+| Platform | Status |
+| --- | --- |
+| macOS | Supported, and the platform this was captured from |
+| Linux | Expected to work: needs `bash` and `python3` |
+| Windows | Works under WSL or Git Bash with `python3` on PATH; native PowerShell is not supported |
+
+Some optional pieces are macOS-only and are simply skipped elsewhere: the Aside
+browser, `ccstatusline`, and the macOS notification tooling.
+
 ## Prerequisites
 
 | Requirement | Notes |
 | --- | --- |
-| bb | The desktop app. Its Settings installer also provides the provider CLIs |
+| bb | The desktop app, for macOS, Linux, or Windows. Its Settings installer also provides the provider CLIs |
+| `python3` | Required. File copying, path substitution, and the API key prompt all use it |
 | Node.js | Only for the optional npm-installed CLIs below |
-| rtk | Optional. Filters shell output for Claude Code via a hook |
+| rtk | Optional, macOS and Linux. Filters shell output for Claude Code via a hook |
 
 **Do not npm-install `codex` or `claude-code`.** bb installs and updates those
 itself, and a second copy earlier in `PATH` shadows the managed one and pins an
@@ -80,8 +115,8 @@ The script is idempotent. Re-run it after any change to `manifest/`.
 
 ## What bootstrap.sh does
 
-1. **Prerequisites.** Checks bb, node, and rtk; warns about duplicate provider
-   CLIs on `PATH`.
+1. **Platform and prerequisites.** Reports the platform, requires `python3`, and
+   warns about duplicate provider CLIs on `PATH`.
 2. **Provider tooling.** Reports which provider CLIs are present and which
    optional tools are missing.
 3. **Skills.** Copies `files/bb-skills/*` into `~/.bb/skills/`. These are real
@@ -92,20 +127,25 @@ The script is idempotent. Re-run it after any change to `manifest/`.
    the Prime Agent shim to use whatever `prime-agent` is on `PATH`.
 6. **Marketplaces.** Adds every marketplace in `manifest/marketplaces.json`.
 7. **Plugins.** Installs each plugin in `manifest/plugins.json`, then enables or
-   disables it to match. Monorepo entries install with `--subdirectory`.
-8. **Plugin settings.** Applies `manifest/plugin-config.json`, expanding
+   disables it to match. Monorepo entries install with `--subdirectory`. Rows
+   marked `unavailable` are skipped with their reason, and any failure is
+   summarised as a list at the end rather than only inline.
+8. **Builtin plugins.** Disables the builtins listed in
+   `manifest/builtin-plugins.json`. Only exceptions are recorded, so builtins
+   added by a later bb release keep their own default.
+9. **Plugin settings.** Applies `manifest/plugin-config.json`, expanding
    `${HOME}` in ACP agent paths.
-9. **bb settings.** General settings, experiments, theme, and favicon colour.
-10. **Interface preferences.** Applies sidebar and thread-list preferences, skipping
+10. **bb settings.** General settings, experiments, theme, and favicon colour.
+11. **Interface preferences.** Applies sidebar and thread-list preferences, skipping
     any that embed a project, thread, or environment id from another machine.
-11. **Claude Code.** Installs `CLAUDE.md`, hooks, reference docs, scripts, and
+12. **Claude Code.** Installs `CLAUDE.md`, hooks, reference docs, scripts, and
     statusline, then merges `settings.json` while preserving existing keys and
     unioning permission lists.
-12. **opencode.** Installs the provider config, backing up any existing file, and
+13. **opencode.** Installs the provider config, backing up any existing file, and
     repoints key-file references at the local home directory.
-13. **opencodex.** Installs the redacted proxy config when none exists, then
+14. **opencodex.** Installs the redacted proxy config when none exists, then
     prompts for API keys with hidden input and writes them mode 600.
-14. Prints the remaining manual steps.
+15. Prints the remaining manual steps.
 
 ## Manual steps after install
 
@@ -166,6 +206,7 @@ capture.sh      re-snapshots manifest/ from a live bb
 
 manifest/       declarative state, one file per concern
   plugins.json            39 plugins: source, enabled state, optional subdirectory
+  builtin-plugins.json    builtin plugins switched off (exceptions only)
   plugin-config.json      settings per plugin
   bb-settings.json        general settings, experiments, appearance
   ui-preferences.json     sidebar layout

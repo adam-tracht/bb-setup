@@ -10,6 +10,29 @@ pass=0; fail=0
 ok()   { printf '  \033[32mPASS\033[0m  %s\n' "$*"; pass=$((pass+1)); }
 no()   { printf '  \033[31mFAIL\033[0m  %s\n' "$*"; fail=$((fail+1)); }
 note() { printf '        %s\n' "$*"; }
+# BSD stat (macOS) and GNU stat (Linux) spell the mode differently.
+perm_of() {
+  stat -f '%Lp' "$1" 2>/dev/null || stat -c '%a' "$1" 2>/dev/null
+}
+
+echo
+echo "bootstrap self-test"
+# A non-zero exit from the script is the failure mode that hides everything
+# after it, so check the exit status explicitly rather than only reading output.
+if bash "$REPO/bootstrap.sh" --dry-run >/tmp/bb-verify-dryrun.log 2>&1; then
+  ok "bootstrap.sh --dry-run completes (exit 0)"
+else
+  rc=$?
+  no "bootstrap.sh --dry-run exited $rc"
+  tail -5 /tmp/bb-verify-dryrun.log | sed 's/^/        /'
+fi
+# And it must not have written anything.
+if [ -f "$HOME/.claude/CLAUDE.md" ]; then
+  before="$(cksum "$HOME/.claude/CLAUDE.md" 2>/dev/null)"
+  bash "$REPO/bootstrap.sh" --dry-run >/dev/null 2>&1 || true
+  after="$(cksum "$HOME/.claude/CLAUDE.md" 2>/dev/null)"
+  [ "$before" = "$after" ] && ok "--dry-run is inert" || no "--dry-run modified a file"
+fi
 
 echo
 echo "bb version"
@@ -47,12 +70,18 @@ want={p['id']:p['enabled'] for p in json.load(open(sys.argv[1]))}
 try: have={p['id']:p['enabled'] for p in json.load(open('/tmp/bb-verify-plugins.json'))['plugins']}
 except Exception as e:
     print('  \033[31mFAIL\033[0m  could not read plugin list: %s'%e); sys.exit(0)
+# A row marked unavailable cannot be installed anywhere, so its absence is the
+# expected outcome rather than a failure.
+unavail={p['id'] for p in json.load(open(sys.argv[1])) if p.get('unavailable')}
+want={i:e for i,e in want.items() if i not in unavail}
 missing=[i for i in want if i not in have]
 wrongstate=[i for i in want if i in have and have[i]!=want[i]]
+if unavail:
+    print('  \033[33mNOTE\033[0m  %d plugin(s) are unavailable upstream and were skipped: %s'%(len(unavail),', '.join(sorted(unavail))))
 if missing:
     print('  \033[31mFAIL\033[0m  %d plugin(s) not installed: %s'%(len(missing),', '.join(missing)))
 else:
-    print('  \033[32mPASS\033[0m  all %d plugins installed'%len(want))
+    print('  \033[32mPASS\033[0m  all %d installable plugins installed'%len(want))
 if wrongstate:
     print('  \033[31mFAIL\033[0m  %d plugin(s) wrong enabled state: %s'%(len(wrongstate),', '.join(wrongstate)))
 else:
@@ -112,7 +141,7 @@ if command -v ocx >/dev/null; then
   ocx status >/dev/null 2>&1 && ok "ocx proxy responding" || { no "ocx proxy not running"; note "ocx service && ocx sync"; }
   CFG="$HOME/.opencodex/config.json"
   if [ -f "$CFG" ]; then
-    perm="$(stat -f '%Lp' "$CFG")"
+    perm="$(perm_of "$CFG")"
     [ "$perm" = "600" ] && ok "ocx config mode 600" || { no "ocx config mode $perm, expected 600"; }
     left="$(python3 -c "
 import json;c=json.load(open('$CFG'))

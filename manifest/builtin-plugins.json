@@ -1,0 +1,12 @@
+{
+  "_comment": "Builtin plugins switched off on the source machine. Only exceptions are listed, so a future bb release that adds builtins is left at its own default. Apply with: bb plugin disable <id>.",
+  "disabled": [
+    "account-pool",
+    "agent-annotations",
+    "concurrency-limit",
+    "monaco-editor",
+    "plugin-api-docs",
+    "plugin-api-tester",
+    "provider-usage"
+  ]
+}

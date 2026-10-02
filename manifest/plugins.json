@@ -10,7 +10,8 @@
     "source": "git:https://github.com/adamdiggs/bb-plugins.git",
     "enabled": true,
     "localPath": false,
-    "subdirectory": "bb-plugin-agent-enrichment"
+    "subdirectory": "bb-plugin-agent-enrichment",
+    "unavailable": "source repository is private"
   },
   {
     "id": "bb-factory",
@@ -58,7 +59,8 @@
     "id": "ios-notifications",
     "source": "git:https://github.com/vburojevic/bb-plugin-ios-notifications@semver:^0.1.0",
     "enabled": true,
-    "localPath": false
+    "localPath": false,
+    "unavailable": "upstream repository is no longer reachable"
   },
   {
     "id": "liquid-glass",
@@ -89,7 +91,8 @@
     "source": "git:https://github.com/ariofrio/bb-plugins.git",
     "enabled": true,
     "localPath": false,
-    "subdirectory": "plugins/bb-plugin-project-header-breadcrumb"
+    "subdirectory": "plugins/bb-plugin-project-header-breadcrumb",
+    "unavailable": "upstream repository was renamed and the plugin path no longer exists"
   },
   {
     "id": "project-instructions",
@@ -126,7 +129,8 @@
     "source": "git:https://github.com/adamdiggs/bb-plugins.git",
     "enabled": true,
     "localPath": false,
-    "subdirectory": "bb-plugin-thread-hover-preview"
+    "subdirectory": "bb-plugin-thread-hover-preview",
+    "unavailable": "source repository is private"
   },
   {
     "id": "thread-organizer",
@@ -208,9 +212,10 @@
   },
   {
     "id": "next-steps",
-    "source": "git:https://github.com/portseif/bb-plugin-next-steps@semver:^0.1.0",
+    "source": "git:https://github.com/portseif/bb-plugin-next-steps@main",
     "enabled": false,
-    "localPath": false
+    "localPath": false,
+    "note": "no release tags upstream, so pinned to main rather than a semver range"
   },
   {
     "id": "notify",

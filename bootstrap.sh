@@ -26,13 +26,10 @@ die()   { printf '\n\033[31mERROR: %s\033[0m\n' "$*" >&2; exit 1; }
 # Every filesystem write and state change goes through one of these three, so
 # --dry-run genuinely touches nothing.
 run()   { if [ "$DRY_RUN" = 1 ]; then info "would run: $*"; else "$@"; fi; }
-sync()  { # sync <srcdir>/ <dstdir>/
-  if [ "$DRY_RUN" = 1 ]; then info "would sync $1 -> $2"; else rsync -a --delete "$@"; fi
-}
 copy()  { # copy <src> <dst>
   if [ "$DRY_RUN" = 1 ]; then info "would back up $1 -> $2"; else cp "$1" "$2"; fi
 }
-# Recursively expand __HOME__ in a copied skills tree.
+# Recursively expand __HOME__ in a copied tree.
 expand_home() {
   grep -rl '__HOME__' "$1" 2>/dev/null | while read -r f; do
     python3 -c "
@@ -41,6 +38,26 @@ p=sys.argv[1]
 s=open(p).read().replace('__HOME__', os.path.expanduser('~'))
 open(p,'w').write(s)" "$f"
   done
+}
+
+# Recursive copy that mirrors the source, dropping build and cache artefacts.
+# Written in python rather than rsync so it works wherever python3 does, which
+# includes Windows under Git Bash or WSL, where rsync is not installed.
+copy_tree() { # copy_tree <srcdir> <dstdir>
+  python3 -c "
+import os,shutil,sys
+src,dst=sys.argv[1],sys.argv[2]
+SKIP={'node_modules','dist','.git','__pycache__','.DS_Store'}
+if os.path.isdir(dst): shutil.rmtree(dst)
+for root,dirs,files in os.walk(src):
+    dirs[:]=[d for d in dirs if d not in SKIP]
+    rel=os.path.relpath(root,src)
+    out=dst if rel=='.' else os.path.join(dst,rel)
+    os.makedirs(out,exist_ok=True)
+    for f in files:
+        if f in SKIP: continue
+        shutil.copy2(os.path.join(root,f),os.path.join(out,f))
+" "$1" "$2"
 }
 # Install a file, expanding the __HOME__ placeholder to this machine's home.
 # Committed copies carry __HOME__ so the repo is not tied to one account.
@@ -54,7 +71,18 @@ open(sys.argv[2],'w').write(s)" "$1" "$2"
 }
 
 # ---------------------------------------------------------------- prereqs ---
-step "Checking prerequisites"
+step "Checking platform and prerequisites"
+# The scripts are POSIX shell plus python3. macOS and Linux provide both
+# natively. Windows needs WSL or Git Bash for bash, and python3 on PATH.
+case "$(uname -s)" in
+  Darwin) info "macOS $(sw_vers -productVersion 2>/dev/null || echo '?')" ;;
+  Linux)  info "Linux $(uname -r)" ;;
+  MINGW*|MSYS*|CYGWIN*) warn "Windows shell detected. These scripts need WSL or Git Bash, plus python3 on PATH." ;;
+  *) warn "unrecognised platform $(uname -s); continuing" ;;
+esac
+if [ -n "${WSL_DISTRO_NAME:-}" ]; then info "running under WSL ($WSL_DISTRO_NAME)"; fi
+
+command -v python3 >/dev/null || die "python3 not found. It is required: file copying, substitutions, and the key prompt all use it."
 command -v node  >/dev/null || warn "node not on PATH. Needed for npm-installed CLIs (opencode, ocx); bb itself does not need it."
 # rtk is the Claude Code hook that filters shell output. Optional, but the
 # Personal CLAUDE.md assumes it. It is a Homebrew formula and needs no ripgrep.
@@ -88,8 +116,10 @@ fi
 for cli in codex claude; do
   command -v "$cli" >/dev/null || continue
   winner="$(command -v "$cli")"
-  others="$(which -a "$cli" 2>/dev/null | tail -n +2 | sort -u | grep -vxF "$winner")"
-  [ -n "$others" ] && warn "$cli resolves to $winner but these can shadow it: $(echo "$others" | tr '\n' ' ')"
+  others="$(which -a "$cli" 2>/dev/null | tail -n +2 | sort -u | grep -vxF "$winner" || true)"
+  if [ -n "$others" ]; then
+    warn "$cli resolves to $winner but these can shadow it: $(echo "$others" | tr '\n' ' ')"
+  fi
 done
 
 for opt in opencode ocx; do
@@ -109,8 +139,7 @@ for d in "$FILES"/bb-skills/*/; do
   if [ "$DRY_RUN" = 1 ]; then
     info "would install skill $name"
   else
-    mkdir -p "$BB_DATA/skills/$name"
-    rsync -a --delete --exclude node_modules --exclude __pycache__ "$d" "$BB_DATA/skills/$name/"
+    copy_tree "$d" "$BB_DATA/skills/$name"
     expand_home "$BB_DATA/skills/$name"
     info "skill $name"
   fi
@@ -174,12 +203,18 @@ step "Installing plugins (this is the slow part; $PLUGIN_COUNT plugins)"
 python3 - "$MANIFEST/plugins.json" > /tmp/bb-setup-plugins.txt <<'PY'
 import json,sys
 for p in json.load(open(sys.argv[1])):
-    print(('1' if p['enabled'] else '0'), p['id'], p['source'], p.get('subdirectory',''))
+    state='SKIP' if p.get('unavailable') else ('1' if p['enabled'] else '0')
+    print(state, p['id'], p.get('source',''), p.get('subdirectory',''))
 PY
 
 install_count=0
 while read -r enabled id source subdir; do
   [ -n "$id" ] || continue
+  if [ "$enabled" = "SKIP" ]; then
+    warn "skipping $id: $(python3 -c "
+import json;print(next(r.get('unavailable','') for r in json.load(open('$MANIFEST/plugins.json')) if r['id']=='$id'))")"
+    continue
+  fi
   if [ "$DRY_RUN" = 1 ]; then info "would install $id"; install_count=$((install_count+1)); continue; fi
 
   if bb plugin list --json 2>/dev/null | python3 -c "import json,sys;print(any(p['id']=='$id' for p in json.load(sys.stdin)['plugins']))" | grep -q True; then
@@ -202,6 +237,19 @@ while read -r enabled id source subdir; do
   fi
 done < /tmp/bb-setup-plugins.txt
 info "processed $install_count new installs"
+
+# Builtin plugins ship with bb and are not installed, only toggled. Only the
+# ones switched off are listed, so builtins added by a later bb release keep
+# their own default.
+while read -r bid; do
+  [ -n "$bid" ] || continue
+  if [ "$DRY_RUN" = 1 ]; then info "would disable builtin $bid"; continue; fi
+  if bb plugin list --json 2>/dev/null | python3 -c "import json,sys;print(any(p['id']=='$bid' for p in json.load(sys.stdin)['plugins']))" | grep -q True; then
+    bb plugin disable "$bid" >/dev/null 2>&1 && info "disabled builtin $bid" || warn "could not disable builtin $bid"
+  fi
+done < <(python3 -c "
+import json
+for b in json.load(open('$MANIFEST/builtin-plugins.json'))['disabled']: print(b)")
 
 # ------------------------------------------------------- plugin settings ---
 step "Applying plugin settings"
@@ -285,8 +333,8 @@ put "$FILES/claude-CLAUDE.md" "$HOME/.claude/CLAUDE.md" 644
 for f in "$FILES"/claude-hooks/*.sh;   do [ -f "$f" ] && put "$f" "$HOME/.claude/hooks/$(basename "$f")"   755; done
 for f in "$FILES"/claude-reference/*.md; do [ -f "$f" ] && put "$f" "$HOME/.claude/reference/$(basename "$f")" 644; done
 for f in "$FILES"/claude-scripts/*.sh; do [ -f "$f" ] && put "$f" "$HOME/.claude/scripts/$(basename "$f")" 755; done
-[ -f "$FILES/claude-statusline-command.sh" ] && put "$FILES/claude-statusline-command.sh" "$HOME/.claude/statusline-command.sh" 644
-[ -f "$FILES/ccstatusline-settings.json" ] && put "$FILES/ccstatusline-settings.json" "$HOME/.config/ccstatusline/settings.json" 644
+if [ -f "$FILES/claude-statusline-command.sh" ]; then put "$FILES/claude-statusline-command.sh" "$HOME/.claude/statusline-command.sh" 644; fi
+if [ -f "$FILES/ccstatusline-settings.json" ]; then put "$FILES/ccstatusline-settings.json" "$HOME/.config/ccstatusline/settings.json" 644; fi
 
 # Merge settings.json rather than overwrite: hooks + permissions + model,
 # preserving anything else already there.
