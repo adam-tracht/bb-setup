@@ -126,7 +126,9 @@ if not data:
     print('  no bb.db found; skipping'); raise SystemExit
 c=sqlite3.connect('file:%s?mode=ro'%data[0],uri=True)
 rows=c.execute("select plugin_id,key,value from plugin_settings").fetchall()
-SKIP={'bb-factory'}          # repository registry points at machine-specific checkouts
+# Skipped because the value is a list of absolute checkout paths and project
+# ids from one machine, so it cannot apply anywhere else.
+SKIP={'bb-factory'}
 out={}
 for pid,k,v in rows:
     if pid in SKIP: continue

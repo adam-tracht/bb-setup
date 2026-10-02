@@ -16,6 +16,17 @@ Captured from bb 0.44.0. Exact tool versions are recorded in `manifest/versions.
 - A personal `CLAUDE.md`, hooks, reference docs, statusline, and skill sync
 - opencode provider config and an opencodex proxy config, with API keys redacted
 
+## Plugins that install unconfigured
+
+Some plugins install and run but have nothing to act on until a machine-specific
+value is supplied. This is expected, not a failed install.
+
+- **[bb-factory](https://github.com/adam-tracht/bb-factory)** runs queued coding
+  tasks unattended on a `factory` branch. Its repository registry is a list of
+  absolute checkout paths and project ids belonging to one machine, so it is not
+  carried. The plugin stays disabled until repositories are added through its
+  settings. The repository holds the full documentation.
+
 ## What is not carried
 
 | Item | Reason |
