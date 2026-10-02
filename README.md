@@ -1,14 +1,14 @@
 # bb-setup
 
-Reproduces a configured bb (agent IDE) installation on a new machine. Tested on
-macOS; bb also publishes a Linux build. Config as code: clone, run
-`./bootstrap.sh`, then complete the login steps.
+Reproduces a configured bb (agent IDE) installation on a new machine. Captured on
+macOS. bb also publishes Linux and Windows builds, both alpha. Config as code:
+clone, run `./bootstrap.sh`, then complete the login steps.
 
 Captured from bb 0.44.0. Exact tool versions are recorded in `manifest/versions.txt`.
 
 ## Contents
 
-- 39 non-builtin bb plugins, with enabled and disabled states recorded
+- 35 non-builtin bb plugins, with enabled and disabled states recorded
 - 8 bb user skills
 - 2 custom ACP agents, with their launch shims
 - bb general settings, appearance, experiments, sidebar and thread-list preferences
@@ -16,25 +16,6 @@ Captured from bb 0.44.0. Exact tool versions are recorded in `manifest/versions.
 - Third-party plugin marketplaces
 - A personal `CLAUDE.md`, hooks, reference docs, statusline, and skill sync
 - opencode provider config and an opencodex proxy config, with API keys redacted
-
-## Plugins with sources that are not publicly reachable
-
-Four entries install only where the upstream repository is reachable, so they are
-skipped elsewhere and reported as a note rather than a failure. Each carries an
-`unavailable` reason in `manifest/plugins.json`.
-
-| Plugin | Reason |
-| --- | --- |
-| `agent-enrichment` | Source repository is private |
-| `thread-hover-preview` | Source repository is private |
-| `ios-notifications` | Upstream repository is no longer reachable |
-| `project-header-breadcrumb` | Upstream repository was renamed and the plugin path no longer exists |
-
-A fifth, `next-steps`, is disabled and pinned to `main` because upstream publishes
-no release tags for a semver range to resolve against.
-
-Fixing any of these means repointing its `source` at a reachable repository.
-`bootstrap.sh` reports what was skipped; `verify.sh` lists the same set.
 
 ## Plugins that install unconfigured
 
@@ -73,25 +54,30 @@ scripts are POSIX shell plus `python3`. Two commands they used were macOS-specif
 and have been replaced with portable equivalents: `rsync` (absent on some systems)
 with a python directory copy, and BSD `stat -f` with a helper covering both flavours.
 
-bb publishes desktop builds for macOS and Linux. Both are live download
-endpoints; Windows has none.
+bb publishes desktop builds for macOS, Linux, and Windows. Per bb's own README, the
+Linux and Windows builds are **alpha**. macOS is arm64 only; Intel Macs should run
+bb through `npx` instead.
 
 | Platform | Scripts | bb desktop app |
 | --- | --- | --- |
-| macOS | Supported, and what this was tested on | [`getbb.app/download/macos`](https://getbb.app/download/macos), an `.dmg` |
-| Linux | Expected to work: needs `bash` and `python3` | [`getbb.app/download/linux`](https://getbb.app/download/linux), an `x86_64` AppImage |
-| Windows | Would run under WSL or Git Bash with `python3` on PATH | None published; `getbb.app/download/windows` returns 404 |
+| macOS (Apple Silicon) | Supported, and what this was tested on | [`bb-<version>-arm64.dmg`](https://getbb.app/download/macos), stable |
+| macOS (Intel) | Supported | No desktop build; use `npx bb-app@latest` |
+| Linux x64 | Expected to work: needs `bash` and `python3` | [`bb-<version>-x86_64.AppImage`](https://getbb.app/download/linux), alpha |
+| Windows x64 | Expected to work under Git Bash with `python3` on PATH | [`bb-<version>-x64.exe`](https://github.com/get-bb/bb/releases/latest), alpha; needs Git for Windows |
+| WSL2 | Runs the Linux path | `npx bb-app@latest` from the WSL shell |
+
+Release assets are listed under `desktop-latest` in the [bb releases](https://github.com/get-bb/bb/releases).
 
 **Nothing is skipped based on platform.** Every file in `files/` is installed on
 every platform. Several carried pieces are macOS-only in practice and will simply
-not function elsewhere: the Aside browser, the `keep-awake` plugin, and iOS push
-notifications. On a non-macOS machine, expect those to be inert rather than absent.
+not function elsewhere: the Aside browser and the `keep-awake` plugin. On a
+non-macOS machine, expect those to be inert rather than absent.
 
 ## Prerequisites
 
 | Requirement | Notes |
 | --- | --- |
-| bb | The desktop app for macOS or Linux. Its Settings installer also provides the provider CLIs |
+| bb | The desktop app (macOS Apple Silicon, Linux x64, Windows x64) or `npx bb-app@latest`. Its Settings installer also provides the provider CLIs |
 | `python3` | Required. File copying, path substitution, and the API key prompt all use it |
 | Node.js | Only for the optional npm-installed CLIs below |
 | rtk | Optional, macOS and Linux. Filters shell output for Claude Code via a hook |
@@ -134,9 +120,8 @@ The script is idempotent. Re-run it after any change to `manifest/`.
    the Prime Agent shim to use whatever `prime-agent` is on `PATH`.
 6. **Marketplaces.** Adds every marketplace in `manifest/marketplaces.json`.
 7. **Plugins.** Installs each plugin in `manifest/plugins.json`, then enables or
-   disables it to match. Monorepo entries install with `--subdirectory`. Rows
-   marked `unavailable` are skipped with their reason, and any failure is
-   summarised as a list at the end rather than only inline.
+   disables it to match. A failure is summarised as a list at the end rather
+   than only inline.
 8. **Builtin plugins.** Disables the builtins listed in
    `manifest/builtin-plugins.json`. Only exceptions are recorded, so builtins
    added by a later bb release keep their own default.
@@ -212,7 +197,7 @@ verify.sh       checks an installation, non-zero exit on failure
 capture.sh      re-snapshots manifest/ from a live bb
 
 manifest/       declarative state, one file per concern
-  plugins.json            39 plugins: source, enabled state, optional subdirectory
+  plugins.json            35 plugins: source and enabled state
   builtin-plugins.json    builtin plugins switched off (exceptions only)
   plugin-config.json      settings per plugin
   bb-settings.json        general settings, experiments, appearance

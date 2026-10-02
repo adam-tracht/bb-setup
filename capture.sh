@@ -104,21 +104,11 @@ for line in open('/tmp/bb-cap-ui.txt'):
     val=line.split(None,1)[1].rsplit('  (revision',1)[0].strip()
     if ID.search(val):
         print('  skipping %s (embeds a machine-specific id)'%k); continue
-    # Drop sidebar entries that name plugins which are not in the manifest:
-    # a new machine cannot render a panel for a plugin it does not have.
-    if val.startswith('['):
-        items=json.loads(val)
-        known={p['id'] for p in json.load(open('manifest/plugins.json'))}
-        builtin_prefixes=('__bb__/',)
-        kept=[]
-        for i in items:
-            pid=i.split('/')[0]
-            if pid.startswith(builtin_prefixes) or pid in known:
-                kept.append(i); continue
-            if any(pid==b for b in ('tasks','github','workflows','automations')):
-                kept.append(i); continue
-            print('  dropping %r from %s (plugin %r not in the manifest)'%(i,k,pid))
-        val=json.dumps(kept,separators=(',',':'))
+    # No filtering of list values. Verified: bb accepts a panel id naming a
+    # plugin that is not installed and ignores it, so an entry left behind by a
+    # removed plugin is harmless. Filtering here previously deleted built-in
+    # section names such as 'pinned' and 'threads' because they are not plugin
+    # ids, which corrupted the sidebar configuration.
     pref[k]=val
 json.dump(pref,open('manifest/ui-preferences.json','w'),indent=2)
 print('  %d ui preferences captured'%len(pref))

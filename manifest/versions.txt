@@ -1,13 +1,11 @@
-# Tool versions at capture time (2026-10-02)
+# Tool versions captured from this machine on 2026-10-02
 bb=0.44.0
 node=v24.19.0
-# provider CLIs managed by bb itself:
-codex=codex-cli 0.159.3
+codex-cli=codex-cli 0.159.3
 claude-code=2.1.287 (Claude Code)
-# ACP agents (optional, own installers):
 devin=devin 3000.11.3 (9c803229faa4)
 prime-agent=0.9.5
+opencode=1.18.30
 # optional tools bb does not manage:
 opencode=1.18.30
 ocx=opencodex 2.76.0
-rtk=rtk 0.42.4

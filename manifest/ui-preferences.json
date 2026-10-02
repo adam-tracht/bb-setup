@@ -1,8 +1,8 @@
 {
-  "sidebar.organizationMode": "project",
-  "sidebar.threadGrouping.environment": "auto",
-  "sidebar.chronologicalSort": "updated",
-  "sidebar.sortDirection": "default",
+  "sidebar.organizationMode": "\"project\"",
+  "sidebar.threadGrouping.environment": "\"auto\"",
+  "sidebar.chronologicalSort": "\"updated\"",
+  "sidebar.sortDirection": "\"default\"",
   "sidebar.manualSectionOrder": "[\"pinned\",\"sections\",\"threads\"]",
   "sidebar.machineSectionOrder": "[\"pinned\",\"machines\",\"threads\"]",
   "sidebar.hiddenGroups": "[]",
@@ -10,9 +10,9 @@
   "sidebar.collapsedThreads": "[]",
   "sidebar.footerOrder": "[]",
   "sidebar.hiddenFooterItems": "[\"builtin:report-bug\",\"plugin:connect/remote-access\"]",
-  "sidebar.pluginPanelOrder": "[\"__bb__/extensions\",\"__bb__/skills\",\"__bb__/new-thread\",\"__bb__/search-threads\",\"__bb__/automations\",\"agentation/annotations\",\"cascade/cascade\",\"agent-checklists/templates\",\"github/github\",\"tasks/tasks\",\"system/system\",\"telemetry/telemetry\",\"sessions/sessions\",\"simple-notes/docs\",\"bb-factory/factory\",\"usage/usage\",\"file-manager/file-manager\"]",
+  "sidebar.pluginPanelOrder": "[\"__bb__/extensions\",\"__bb__/skills\",\"__bb__/new-thread\",\"__bb__/search-threads\",\"__bb__/automations\",\"agentation/annotations\",\"cascade/cascade\",\"agent-checklists/templates\",\"github/github\",\"tasks/tasks\",\"kanban/board\",\"work/work\",\"system/system\",\"telemetry/telemetry\",\"sessions/sessions\",\"simple-notes/docs\",\"bb-factory/factory\",\"usage/usage\",\"file-manager/file-manager\"]",
   "sidebar.visiblePluginPanels": "[\"bb-factory/factory\",\"__bb__/new-thread\",\"__bb__/extensions\",\"__bb__/skills\",\"agentation/annotations\",\"cascade/cascade\"]",
-  "sidebar.navigationProvider": "__automatic__",
-  "sidebar.headerProvider": "__builtin__",
-  "sidebar.threadListProvider": "bb-sidebar/inbox"
+  "sidebar.navigationProvider": "\"__automatic__\"",
+  "sidebar.headerProvider": "\"__builtin__\"",
+  "sidebar.threadListProvider": "\"bb-sidebar/inbox\""
 }

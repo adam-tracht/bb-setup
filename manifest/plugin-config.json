@@ -1,31 +1,40 @@
 {
-  "custom-instructions": {
-    "instructions": "\"Always use bb child threads instead of native subagents or background agents. Child threads are not authorized to spawn their own subagents.\""
+  "next-steps": {
+    "autoDisplay": "false",
+    "autoGenerate": "false",
+    "refreshOnThreadIdle": "false",
+    "arrowCycling": "false"
   },
   "emoji-react": {
     "emojiItems": "\"\ud83d\udc4d Agree, \u2705 Do it, \u2753 Explain this concisely in plain english with no jargon or function names etc., \ud83e\uddd0 Have you validated these assumptions? Are you confident in the plan? Are you missing any information that would make you more confident?\"",
-    "quotePosition": "\"before\"",
-    "quoteSelection": "true"
+    "quoteSelection": "true",
+    "quotePosition": "\"before\""
   },
-  "file-manager": {
-    "showHiddenFiles": "false",
-    "sortDirection": "\"desc\"",
-    "sortField": "\"modified\"",
-    "viewMode": "\"list\""
+  "thread-organizer": {
+    "inboxMode": "\"apply\""
   },
-  "provider-acp": {
-    "customAgents": "\"[{\\\"id\\\":\\\"devin\\\",\\\"displayName\\\":\\\"Devin\\\",\\\"command\\\":\\\"${HOME}/.bb/bin/devin-acp-writefix.mjs\\\",\\\"args\\\":[\\\"acp\\\"]},{\\\"id\\\":\\\"prime-agent\\\",\\\"displayName\\\":\\\"Prime Agent\\\",\\\"command\\\":\\\"${HOME}/.bb/bin/pa-acp.sh\\\",\\\"args\\\":[\\\"--mode\\\",\\\"acp\\\"],\\\"modelCli\\\":{\\\"listArgs\\\":[\\\"model-list\\\"],\\\"selectFlag\\\":\\\"--model\\\",\\\"primaryModels\\\":[]},\\\"reasoningCli\\\":{\\\"flag\\\":\\\"--thinking\\\",\\\"supportedLevels\\\":[\\\"low\\\",\\\"medium\\\",\\\"high\\\",\\\"xhigh\\\",\\\"max\\\"],\\\"levelValues\\\":{\\\"low\\\":\\\"low\\\",\\\"medium\\\":\\\"medium\\\",\\\"high\\\":\\\"high\\\",\\\"xhigh\\\":\\\"xhigh\\\",\\\"max\\\":\\\"max\\\"},\\\"defaultLevel\\\":\\\"medium\\\"}}]\""
+  "provider-codex": {
+    "memoryEnabled": "false",
+    "subagentsDisabled": "false"
   },
   "provider-claude-code": {
     "memoryEnabled": "false",
     "subagentsDisabled": "false",
     "workflowsDisabled": "false"
   },
-  "provider-codex": {
-    "memoryEnabled": "false",
-    "subagentsDisabled": "false"
+  "provider-acp": {
+    "customAgents": "\"[{\\\"id\\\":\\\"devin\\\",\\\"displayName\\\":\\\"Devin\\\",\\\"command\\\":\\\"/Users/adamtracht/.bb/bin/devin-acp-writefix.mjs\\\",\\\"args\\\":[\\\"acp\\\"]},{\\\"id\\\":\\\"prime-agent\\\",\\\"displayName\\\":\\\"Prime Agent\\\",\\\"command\\\":\\\"/Users/adamtracht/.bb/bin/pa-acp.sh\\\",\\\"args\\\":[\\\"--mode\\\",\\\"acp\\\"],\\\"modelCli\\\":{\\\"listArgs\\\":[\\\"model-list\\\"],\\\"selectFlag\\\":\\\"--model\\\",\\\"primaryModels\\\":[]},\\\"reasoningCli\\\":{\\\"flag\\\":\\\"--thinking\\\",\\\"supportedLevels\\\":[\\\"low\\\",\\\"medium\\\",\\\"high\\\",\\\"xhigh\\\",\\\"max\\\"],\\\"levelValues\\\":{\\\"low\\\":\\\"low\\\",\\\"medium\\\":\\\"medium\\\",\\\"high\\\":\\\"high\\\",\\\"xhigh\\\":\\\"xhigh\\\",\\\"max\\\":\\\"max\\\"},\\\"defaultLevel\\\":\\\"medium\\\"}}]\""
   },
   "provider-retry": {
     "maximumWait": "\"24 hours\""
+  },
+  "file-manager": {
+    "showHiddenFiles": "false",
+    "viewMode": "\"list\"",
+    "sortField": "\"modified\"",
+    "sortDirection": "\"desc\""
+  },
+  "custom-instructions": {
+    "instructions": "\"Always use bb child threads instead of native subagents or background agents. Child threads are not authorized to spawn their own subagents.\""
   }
 }

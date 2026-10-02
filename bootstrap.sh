@@ -208,6 +208,7 @@ for p in json.load(open(sys.argv[1])):
 PY
 
 install_count=0
+: > /tmp/bb-setup-failures.txt
 while read -r enabled id source subdir; do
   [ -n "$id" ] || continue
   if [ "$enabled" = "SKIP" ]; then
@@ -222,21 +223,27 @@ import json;print(next(r.get('unavailable','') for r in json.load(open('$MANIFES
   else
     if [ -n "$subdir" ]; then
       bb plugin install "$source" --subdirectory "$subdir" --yes --json >/dev/null 2>&1 \
-        && info "installed $id ($subdir)" || warn "FAILED $id"
+        && info "installed $id ($subdir)" || { warn "FAILED $id"; echo "$id" >> /tmp/bb-setup-failures.txt; }
     else
       bb plugin install "$source" --yes --json >/dev/null 2>&1 \
-        && info "installed $id" || warn "FAILED $id"
+        && info "installed $id" || { warn "FAILED $id"; echo "$id" >> /tmp/bb-setup-failures.txt; }
     fi
     install_count=$((install_count+1))
   fi
 
   if [ "$enabled" = "1" ]; then
-    bb plugin enable "$id" >/dev/null 2>&1 || warn "could not enable $id"
+    bb plugin enable "$id" >/dev/null 2>&1 || { warn "could not enable $id"; echo "$id (enable)" >> /tmp/bb-setup-failures.txt; }
   else
-    bb plugin disable "$id" >/dev/null 2>&1 || warn "could not disable $id"
+    bb plugin disable "$id" >/dev/null 2>&1 || { warn "could not disable $id"; echo "$id (disable)" >> /tmp/bb-setup-failures.txt; }
   fi
 done < /tmp/bb-setup-plugins.txt
 info "processed $install_count new installs"
+
+if [ -s /tmp/bb-setup-failures.txt ] && [ "$DRY_RUN" = 0 ]; then
+  step "Plugins that did not complete"
+  sort -u /tmp/bb-setup-failures.txt | while read -r f; do info "$f"; done
+  info "re-run after fixing the cause; the script is safe to re-run"
+fi
 
 # Builtin plugins ship with bb and are not installed, only toggled. Only the
 # ones switched off are listed, so builtins added by a later bb release keep
