@@ -1,0 +1,9 @@
+<!-- JSM-WATERMARK v1 -->
+bundle_id: 936fb833-79e2-4dca-a2fb-f3d1197580e1
+key_version: v1
+user_handle: e2f87c7e3c3d
+skill: mcp-server-design@8
+issued_at: 2026-09-25T15:25:27.110Z
+license: https://jeffreys-skills.md/terms
+<!-- /JSM-WATERMARK -->
+This bundle is licensed subject to https://jeffreys-skills.md/terms.

@@ -1,0 +1,181 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "rtk hook claude"
+          },
+          {
+            "type": "command",
+            "command": "__HOME__/.claude/hooks/pre-commit-doc-gate.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/scripts/sync-desktop-skills.sh"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/hark-notify.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/turn-start.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(railway whoami)",
+      "Bash(railway status:*)",
+      "Bash(railway logs:*)",
+      "Bash(railway variables:*)",
+      "Bash(railway list:*)",
+      "Bash(bq query:*)",
+      "Bash(bq show:*)",
+      "Bash(bq ls:*)",
+      "Bash(bq head:*)",
+      "Bash(dbt ls:*)",
+      "Bash(dbt compile:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr list:*)",
+      "Bash(gh issue view:*)",
+      "Bash(gh issue list:*)",
+      "Bash(gh run view:*)",
+      "Bash(gh run list:*)",
+      "Bash(git status:*)",
+      "Bash(git log:*)",
+      "Bash(git diff:*)",
+      "Bash(git show:*)",
+      "Bash(git branch:*)",
+      "Bash(git fetch *)",
+      "Bash(gcloud logging read *)",
+      "Bash(npx eslint *)",
+      "mcp__claude-in-chrome__tabs_context_mcp",
+      "mcp__claude-in-chrome__find",
+      "mcp__claude-in-chrome__list_connected_browsers",
+      "mcp__claude-in-chrome__get_page_text",
+      "mcp__claude-in-chrome__read_page",
+      "mcp__claude-in-chrome__read_network_requests",
+      "mcp__claude-in-chrome__read_console_messages",
+      "mcp__n8n-mcp__get_execution",
+      "mcp__n8n-mcp__validate_workflow",
+      "mcp__n8n-mcp__get_workflow_details",
+      "mcp__n8n-mcp__search_workflows",
+      "mcp__n8n-mcp__get_sdk_reference",
+      "mcp__n8n-mcp__search_nodes",
+      "mcp__n8n-mcp__get_node_types",
+      "Bash(bq --location=us-central1 query:*)",
+      "Bash(bq --location=us-central1 ls:*)",
+      "Bash(bq --location=us-central1 show:*)",
+      "Bash(bq --location=us-central1 head:*)",
+      "Bash(gcloud auth list:*)",
+      "Bash(gcloud config list:*)",
+      "Bash(gcloud config get-value:*)",
+      "Bash(gcloud projects list:*)",
+      "Bash(gcloud projects describe:*)",
+      "Bash(gcloud projects get-iam-policy:*)",
+      "Bash(gcloud services list:*)",
+      "Bash(gcloud iam service-accounts list:*)",
+      "Bash(gcloud iam service-accounts describe:*)",
+      "Bash(gcloud artifacts repositories list:*)",
+      "Bash(gcloud artifacts docker images list:*)",
+      "Bash(gcloud run jobs list:*)",
+      "Bash(gcloud run jobs describe:*)",
+      "Bash(gcloud run jobs executions list:*)",
+      "Bash(gcloud run jobs executions describe:*)",
+      "Bash(gcloud run services list:*)",
+      "Bash(gcloud run services describe:*)",
+      "Bash(gcloud scheduler jobs list:*)",
+      "Bash(gcloud scheduler jobs describe:*)",
+      "Bash(gcloud builds list:*)",
+      "Bash(gcloud builds describe:*)",
+      "Bash(gcloud builds log:*)",
+      "Bash(gcloud secrets list:*)",
+      "Bash(gcloud secrets describe:*)",
+      "Bash(rtk gain:*)",
+      "Bash(rtk discover:*)",
+      "Bash(rtk session:*)",
+      "Bash(rtk cc-economics:*)",
+      "Bash(rtk ls:*)",
+      "Bash(rtk read:*)",
+      "Bash(rtk tree:*)",
+      "Bash(rtk find:*)",
+      "Bash(rtk grep:*)",
+      "Bash(rtk wc:*)",
+      "Bash(rtk diff:*)",
+      "Bash(rtk json:*)",
+      "Bash(rtk deps:*)",
+      "Bash(rtk env:*)",
+      "Bash(rtk smart:*)",
+      "Bash(rtk tsc:*)",
+      "Bash(rtk lint:*)",
+      "Bash(rtk prettier:*)",
+      "Bash(rtk git status:*)",
+      "Bash(rtk git log:*)",
+      "Bash(rtk git diff:*)",
+      "Bash(rtk git show:*)",
+      "Bash(rtk git branch:*)",
+      "Bash(rtk gh pr view:*)",
+      "Bash(rtk gh pr list:*)",
+      "Bash(rtk gh run view:*)",
+      "Bash(rtk gh run list:*)",
+      "Bash(mkdir:*)",
+      "Bash(chmod +x:*)",
+      "Bash(pmset -g:*)",
+      "Bash(node --check:*)",
+      "Bash(npm run build)",
+      "Bash(npm run lint)",
+      "Bash(curl -s:*)",
+      "Bash(curl -sS:*)",
+      "Bash(curl -fsS:*)",
+      "Bash(git pull:*)"
+    ]
+  },
+  "model": "opus[1m]",
+  "env": {
+    "ENABLE_TOOL_SEARCH": "true"
+  },
+  "enabledPlugins": {
+    "frontend-design@claude-code-plugins": true,
+    "ralph-wiggum@claude-code-plugins": true,
+    "security-guidance@claude-code-plugins": true
+  },
+  "extraKnownMarketplaces": {
+    "claude-code-plugins": {
+      "source": {
+        "source": "github",
+        "repo": "anthropics/claude-code"
+      }
+    }
+  },
+  "outputStyle": "Concise",
+  "effortLevel": "high",
+  "autoCompactWindow": 200000,
+  "tui": "fullscreen"
+}

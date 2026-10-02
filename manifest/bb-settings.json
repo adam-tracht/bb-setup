@@ -1,0 +1,28 @@
+{
+  "generalSettings": {
+    "defaultProviderId": "codex",
+    "providerCompletedTurnDisplay": {
+      "claude-code": "collapse"
+    },
+    "telemetryEnabled": true,
+    "managedBranchPrefix": "bb/",
+    "showKeyboardHints": true,
+    "steerActiveThreadOnEnter": true,
+    "showDiagnosticEvents": false,
+    "streamerMode": false,
+    "machineGitCredentialsEnabled": true,
+    "showUnhandledProviderEvents": false
+  },
+  "experiments": {
+    "changelogPreview": true,
+    "legacyJitiPluginLoader": false,
+    "mobileApp": false,
+    "serverMove": false,
+    "sidebarProgressiveDisclosure": true
+  },
+  "appearance": {
+    "themeId": "catppuccin",
+    "faviconColor": "blue"
+  },
+  "voiceTranscriptionEnabled": true
+}

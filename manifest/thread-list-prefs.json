@@ -1,0 +1,24 @@
+{
+  "showProviderIcons": false,
+  "threadLifecycles": [
+    "active"
+  ],
+  "organizationMode": "project",
+  "environmentGrouping": "auto",
+  "chronologicalSort": "updated",
+  "sortDirection": "default",
+  "manualSectionOrder": [
+    "pinned",
+    "sections",
+    "threads"
+  ],
+  "machineSectionOrder": [
+    "pinned",
+    "machines",
+    "threads"
+  ],
+  "hiddenGroups": [],
+  "collapsedSections": [],
+  "collapsedThreads": [],
+  "collapsedMachines": []
+}

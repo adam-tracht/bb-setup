@@ -1,0 +1,55 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "opencode": {
+      "options": {
+        "apiKey": "{file:__HOME__/.config/opencode/opencode-api-key}",
+        "baseURL": "https://opencode.ai/zen/v1",
+        "setCacheKey": true
+      }
+    },
+    "opencode-go": {
+      "options": {
+        "apiKey": "{file:__HOME__/.config/opencode/opencode-api-key}",
+        "baseURL": "https://opencode.ai/zen/go/v1",
+        "setCacheKey": true
+      }
+    },
+    "meta": {
+      "npm": "@ai-sdk/openai",
+      "name": "Meta Model API",
+      "options": {
+        "baseURL": "https://api.meta.ai/v1",
+        "apiKey": "{file:__HOME__/.config/opencode/meta-api-key}"
+      },
+      "models": {
+        "muse-spark-1.3": {
+          "name": "Muse Spark 1.3",
+          "reasoning": true,
+          "limit": {
+            "context": 1048576,
+            "output": 131072
+          },
+          "modalities": {
+            "input": [
+              "text",
+              "image",
+              "pdf",
+              "video"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "options": {
+            "reasoningEffort": "high",
+            "reasoningSummary": "auto",
+            "include": [
+              "reasoning.encrypted_content"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

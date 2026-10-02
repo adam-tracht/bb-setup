@@ -1,0 +1,14 @@
+# Never commit real credentials. The ocx template ships with <redacted> placeholders;
+# keeps a hand-added real key out of git.
+*.local.json
+secrets/
+*.pem
+*.key
+.env
+.env.*
+!.env.example
+
+# Scratch
+.DS_Store
+*.bak
+*.bak-*
