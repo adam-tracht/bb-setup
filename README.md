@@ -1,7 +1,8 @@
 # bb-setup
 
-Reproduces a configured bb (agent IDE) installation on a new macOS machine.
-Config as code: clone, run `./bootstrap.sh`, then complete the login steps.
+Reproduces a configured bb (agent IDE) installation on a new machine. Tested on
+macOS; bb also publishes a Linux build. Config as code: clone, run
+`./bootstrap.sh`, then complete the login steps.
 
 Captured from bb 0.44.0. Exact tool versions are recorded in `manifest/versions.txt`.
 
@@ -67,24 +68,30 @@ history, at the cost of depending on the server machine staying awake.
 
 ## Platform support
 
-Tested on macOS. The scripts are POSIX shell plus `python3`, and the two
-platform-specific commands they used (`rsync`, BSD `stat`) have been replaced
-with portable equivalents, so Linux works as well.
+Tested on macOS, which is the platform this configuration was captured from. The
+scripts are POSIX shell plus `python3`. Two commands they used were macOS-specific
+and have been replaced with portable equivalents: `rsync` (absent on some systems)
+with a python directory copy, and BSD `stat -f` with a helper covering both flavours.
 
-| Platform | Status |
-| --- | --- |
-| macOS | Supported, and the platform this was captured from |
-| Linux | Expected to work: needs `bash` and `python3` |
-| Windows | Works under WSL or Git Bash with `python3` on PATH; native PowerShell is not supported |
+bb publishes desktop builds for macOS and Linux. Both are live download
+endpoints; Windows has none.
 
-Some optional pieces are macOS-only and are simply skipped elsewhere: the Aside
-browser, `ccstatusline`, and the macOS notification tooling.
+| Platform | Scripts | bb desktop app |
+| --- | --- | --- |
+| macOS | Supported, and what this was tested on | [`getbb.app/download/macos`](https://getbb.app/download/macos), an `.dmg` |
+| Linux | Expected to work: needs `bash` and `python3` | [`getbb.app/download/linux`](https://getbb.app/download/linux), an `x86_64` AppImage |
+| Windows | Would run under WSL or Git Bash with `python3` on PATH | None published; `getbb.app/download/windows` returns 404 |
+
+**Nothing is skipped based on platform.** Every file in `files/` is installed on
+every platform. Several carried pieces are macOS-only in practice and will simply
+not function elsewhere: the Aside browser, the `keep-awake` plugin, and iOS push
+notifications. On a non-macOS machine, expect those to be inert rather than absent.
 
 ## Prerequisites
 
 | Requirement | Notes |
 | --- | --- |
-| bb | The desktop app, for macOS, Linux, or Windows. Its Settings installer also provides the provider CLIs |
+| bb | The desktop app for macOS or Linux. Its Settings installer also provides the provider CLIs |
 | `python3` | Required. File copying, path substitution, and the API key prompt all use it |
 | Node.js | Only for the optional npm-installed CLIs below |
 | rtk | Optional, macOS and Linux. Filters shell output for Claude Code via a hook |
