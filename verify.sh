@@ -155,6 +155,28 @@ else
 fi
 
 echo
+echo "model routing stays fresh"
+for f in catalog-maintenance.sh model-gap-check.sh; do
+  [ -x "$HOME/.opencodex/$f" ] && ok "$f installed and executable" || no "$f missing or not executable in ~/.opencodex"
+done
+if [ "$(uname -s)" = "Darwin" ]; then
+  if launchctl list 2>/dev/null | grep -q 'ai.opencodex.catalog-maintenance'; then
+    ok "hourly catalog-maintenance job is loaded"
+  else
+    no "hourly catalog-maintenance job is not loaded"
+    note "launchctl load ~/Library/LaunchAgents/ai.opencodex.catalog-maintenance.plist"
+  fi
+else
+  note "no launchd on this platform; confirm the catalog refresh is scheduled by cron or systemd"
+fi
+if command -v bb >/dev/null && bb automation list --project proj_personal 2>/dev/null | grep -q 'Sync model catalogs'; then
+  ok "bb automation 'Sync model catalogs' present"
+else
+  no "bb automation 'Sync model catalogs' missing"
+  note "see the README for the command; the launchd job covers the same ground"
+fi
+
+echo
 echo "opencode keys"
 for k in opencode-api-key meta-api-key; do
   f="$HOME/.config/opencode/$k"

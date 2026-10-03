@@ -438,6 +438,53 @@ if need:
 PY
 fi
 
+# ------------------------------------------------- ocx scheduled maintenance ---
+# Without this the model catalogs go stale and bb's picker silently drops new
+# models. Installs the two scripts and the hourly launchd job, and creates the
+# bb automation that keeps the proxy and the opencode list warm.
+step "Installing ocx scheduled maintenance"
+for f in catalog-maintenance.sh model-gap-check.sh; do
+  [ -f "$FILES/ocx/$f" ] || continue
+  put "$FILES/ocx/$f" "$HOME/.opencodex/$f" 700
+done
+
+if [ "$(uname -s)" = "Darwin" ]; then
+  PLIST_SRC="$FILES/ocx/ai.opencodex.catalog-maintenance.plist"
+  if [ -f "$PLIST_SRC" ]; then
+    if [ "$DRY_RUN" = 0 ]; then mkdir -p "$HOME/Library/LaunchAgents"; fi
+    put "$PLIST_SRC" "$HOME/Library/LaunchAgents/ai.opencodex.catalog-maintenance.plist" 644
+    if [ "$DRY_RUN" = 1 ]; then
+      info "would load the hourly catalog-maintenance job"
+    elif launchctl unload "$HOME/Library/LaunchAgents/ai.opencodex.catalog-maintenance.plist" 2>/dev/null; then
+      : # not previously loaded
+    fi
+    if [ "$DRY_RUN" = 0 ]; then
+      if launchctl load "$HOME/Library/LaunchAgents/ai.opencodex.catalog-maintenance.plist" 2>/dev/null; then
+        info "loaded hourly catalog-maintenance job"
+      else
+        warn "could not load the catalog-maintenance job; run: launchctl load ~/Library/LaunchAgents/ai.opencodex.catalog-maintenance.plist"
+      fi
+    fi
+  fi
+else
+  warn "no launchd on this platform: schedule $HOME/.opencodex/catalog-maintenance.sh hourly with cron or a systemd timer"
+fi
+
+if [ "$DRY_RUN" = 1 ]; then
+  info "would create the bb automation 'Sync model catalogs'"
+elif command -v bb >/dev/null && bb automation list --project proj_personal 2>/dev/null | grep -q 'Sync model catalogs'; then
+  info "bb automation 'Sync model catalogs' already present"
+elif command -v bb >/dev/null; then
+  # The exact flag names have moved between bb versions, so a failure here is a
+  # note, not a fatal error: the launchd job covers the same ground hourly.
+  bb automation create --project proj_personal --name "Sync model catalogs" \
+     --cron "0 * * * *" --timezone "$(/usr/bin/date +%Z 2>/dev/null || echo UTC)" \
+     --script 'ocx ensure >/dev/null 2>&1; opencode models >/dev/null 2>&1; exit 0' \
+     >/dev/null 2>&1 \
+     && info "created bb automation 'Sync model catalogs'" \
+     || warn "could not create the bb automation; see README for the command"
+fi
+
 # --------------------------------------------------------------- wrap up ---
 step "Done. Run ./verify.sh, then work through README section 6."
 cat <<'EOF'

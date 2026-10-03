@@ -155,7 +155,27 @@ The script is idempotent. Re-run it after any change to `manifest/`.
     repoints key-file references at the local home directory.
 14. **opencodex.** Installs the redacted proxy config when none exists, then
     prompts for API keys with hidden input and writes them mode 600.
-15. Prints the remaining manual steps.
+15. **Scheduled model-catalog maintenance.** Installs `catalog-maintenance.sh`
+    and `model-gap-check.sh` into `~/.opencodex/`, loads the hourly launchd job,
+    and creates the `Sync model catalogs` bb automation. Without this the
+    catalogs go stale and bb's picker silently loses new models.
+16. Prints the remaining manual steps.
+
+## Keeping model selection fresh
+
+Two hourly mechanisms, installed by `bootstrap.sh`:
+
+| Mechanism | Does |
+| --- | --- |
+| `catalog-maintenance.sh` (launchd, hourly) | Ensures the proxy is ready, refreshes every provider catalog, and self-updates the proxy when a release exists. Defers the update while requests are in flight. |
+| `model-gap-check.sh` (on the above's exit) | Compares the live provider roster against bb's picker. On a **new** gap it spawns one bb thread to investigate. Unchanged gaps stay quiet. |
+| `Sync model catalogs` (bb automation, hourly) | Warms the proxy and refreshes the opencode model list. |
+
+`model-gap-check.sh` reads `~/.codex/auth.json`, so it needs `codex login` first.
+It targets the built-in `proj_personal` project and honours `MODEL_GAP_BB_PROJECT`.
+
+Both scripts are zsh. Off macOS, schedule `catalog-maintenance.sh` hourly with
+cron or a systemd timer; `verify.sh` reports a missing launchd job.
 
 ## Manual steps after install
 
@@ -227,7 +247,7 @@ manifest/       declarative state, one file per concern
 files/          copies installed onto the target
   bb-skills/              user skills
   bb-bin/                 ACP agent launch shims
-  ocx/config.template.json  proxy config, API keys redacted
+  ocx/                       proxy config (keys redacted), maintenance scripts, launchd plist
   opencode/opencode.json    provider config
   bb-AGENTS.md, claude-CLAUDE.md, claude-settings.json,
   claude-hooks/, claude-reference/, claude-scripts/,
