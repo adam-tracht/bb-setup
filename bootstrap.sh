@@ -82,7 +82,18 @@ case "$(uname -s)" in
 esac
 if [ -n "${WSL_DISTRO_NAME:-}" ]; then info "running under WSL ($WSL_DISTRO_NAME)"; fi
 
-command -v python3 >/dev/null || die "python3 not found. It is required: file copying, substitutions, and the key prompt all use it."
+# Python is required for file copying, placeholder substitution, and the key
+# prompt. It installs as `python` rather than `python3` on Windows, so fall back
+# to that name rather than failing the whole run over a symlink.
+if ! command -v python3 >/dev/null 2>&1; then
+  if command -v python >/dev/null 2>&1; then
+    warn "python3 not found; using 'python' instead"
+    python3() { python "$@"; }
+  else
+    die "python not found. It is required: file copying, substitutions, and the key prompt all use it. Install Python 3 and ensure 'python' or 'python3' is on PATH."
+  fi
+fi
+info "python $(python3 -c 'import sys; print(sys.version.split()[0])' 2>/dev/null || echo '?')"
 command -v node  >/dev/null || warn "node not on PATH. Needed for npm-installed CLIs (opencode, ocx); bb itself does not need it."
 # rtk is the Claude Code hook that filters shell output. Optional, but the
 # Personal CLAUDE.md assumes it. It is a Homebrew formula and needs no ripgrep.

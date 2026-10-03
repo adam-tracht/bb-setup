@@ -68,6 +68,24 @@ bb through `npx` instead.
 
 Release assets are listed under `desktop-latest` in the [bb releases](https://github.com/get-bb/bb/releases).
 
+### Running on Windows
+
+Not tested. bb's Windows build is alpha and its README notes that native Windows
+needs Git for Windows, which supplies the bash and git these scripts assume.
+Expect to fix small things on first run. Specifically unverified:
+
+- **The ACP agent shims.** `~/.bb/bin/pa-acp.sh` is a POSIX shell script. On
+  Windows, bb must launch it through Git Bash, and `devin` and `prime-agent`
+  are optional, so drop `provider-acp`'s `customAgents` setting if a shim fails.
+- **File modes.** `chmod` has little effect on a Windows filesystem, so the
+  `verify.sh` executable checks may report false failures.
+- **`bb connect` and phone push** depend on the bb server rather than this repo,
+  but neither is covered by anything here.
+
+What is portable and covered by `verify.sh`: directory copying, the `__HOME__`
+substitution, the key prompt, and every `bb` CLI call. Python is required and is
+found under either name, since Windows installs it as `python`.
+
 **Nothing is skipped based on platform.** Every file in `files/` is installed on
 every platform. Several carried pieces are macOS-only in practice and will simply
 not function elsewhere: the Aside browser and the `keep-awake` plugin. On a
