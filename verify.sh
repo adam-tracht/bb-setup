@@ -5,6 +5,7 @@
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MANIFEST="$REPO/manifest"
 BB_DATA="${BB_DATA_DIR:-$HOME/.bb}"
+FILES="$REPO/files"
 
 pass=0; fail=0
 ok()   { printf '  \033[32mPASS\033[0m  %s\n' "$*"; pass=$((pass+1)); }
@@ -35,10 +36,48 @@ if [ -f "$HOME/.claude/CLAUDE.md" ]; then
 fi
 
 echo
+echo "pure helpers (regression)"
+# --dry-run skips the paths that do the real work, so the shared helpers are
+# exercised directly here against a temporary tree. The no-placeholder case is
+# the important one: most skills contain no __HOME__, and a grep that matches
+# nothing must not abort the run under `set -o pipefail`.
+# shellcheck source=lib/helpers.sh
+(
+  set -euo pipefail
+  . "$REPO/lib/helpers.sh"
+  info() { :; }
+  warn() { :; }
+  die()  { printf 'died: %s\n' "$*" >&2; exit 1; }
+  T="$(mktemp -d)"
+  trap 'rm -rf "$T"' EXIT
+  mkdir -p "$T/no-placeholder" "$T/with-placeholder/sub" "$T/src/nested"
+  printf -- '---\nname: t\ndescription: t\n---\n\nbody\n' > "$T/no-placeholder/SKILL.md"
+  printf '__HOME__/x\n' > "$T/with-placeholder/sub/a.md"
+  printf 'kept\n' > "$T/src/nested/b.md"
+  mkdir -p "$T/src/node_modules" && printf 'junk\n' > "$T/src/node_modules/j.js"
+  mkdir -p "$T/dst" && printf 'stale\n' > "$T/dst/STALE.md"   # must be removed by the mirror
+  # the case that previously aborted the whole run
+  expand_home "$T/no-placeholder"
+  expand_home "$T/with-placeholder"
+  copy_tree "$T/src" "$T/dst"
+  # Each assertion is an explicit if. A bare "test && exit 1" returns non-zero
+  # when the test passes, which aborts under set -e instead of reporting.
+  if grep -q __HOME__ "$T/with-placeholder/sub/a.md"; then exit 1; fi
+  if [ ! -f "$T/dst/nested/b.md" ]; then exit 1; fi
+  if [ -d "$T/dst/node_modules" ]; then exit 1; fi
+  if [ -f "$T/dst/STALE.md" ]; then exit 1; fi
+)
+if [ $? -eq 0 ]; then
+  ok "shared helpers behave on empty, nested, and stale trees"
+else
+  no "a shared helper misbehaved (see lib/helpers.sh)"
+fi
+
+echo
 echo "bb version"
 if command -v bb >/dev/null; then
   v="$(bb --version 2>/dev/null)"
-  want="$(grep -E '^bb=' "$MANIFEST/versions.txt" | cut -d= -f2)"
+  want="$(grep -E '^bb=' "$MANIFEST/versions.txt" | cut -d= -f2 || true)"
   [ "$v" = "$want" ] && ok "bb $v" || { no "bb $v (pinned $want)"; note "update bb or the pin"; }
 else
   no "bb not on PATH"; note "install bb.app, then re-run bootstrap.sh"
@@ -110,7 +149,7 @@ foreign_home "$BB_DATA/bin/pa-acp.sh" && { no "pa-acp.sh points at another Mac's
 if grep -rq '__HOME__' "$BB_DATA/skills" "$FILES" 2>/dev/null; then
   if grep -rq '__HOME__' "$BB_DATA/skills" 2>/dev/null; then
     no "an installed file still contains the __HOME__ placeholder"
-    grep -rl '__HOME__' "$BB_DATA/skills" 2>/dev/null | head -3 | sed 's/^/        /'
+    { grep -rl '__HOME__' "$BB_DATA/skills" 2>/dev/null || true; } | head -3 | sed 's/^/        /'
     note "re-run bootstrap.sh"
   fi
 fi
@@ -207,7 +246,7 @@ fi
 # Belt and braces: anything that looks like a real key shape.
 if grep -rqnE '\b(sk-|ghp_|gho_|bbcred_|xoxb-)[A-Za-z0-9_-]{16,}' "$REPO" 2>/dev/null; then
   no "a credential-shaped string is present somewhere in the repo"
-  grep -rnoE '\b(sk-|ghp_|gho_|bbcred_|xoxb-)[A-Za-z0-9_-]{16,}' "$REPO" 2>/dev/null | head -5 | sed 's/^/        /'
+  { grep -rnoE '\b(sk-|ghp_|gho_|bbcred_|xoxb-)[A-Za-z0-9_-]{16,}' "$REPO" 2>/dev/null || true; } | head -5 | sed 's/^/        /'
 else
   ok "no credential-shaped strings"
 fi

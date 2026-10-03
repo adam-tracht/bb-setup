@@ -10,14 +10,21 @@ FILES="$REPO/files"
 BB_DATA="${BB_DATA_DIR:-$HOME/.bb}"
 
 SKIP_SECRETS=0
+SKIP_CLAUDE=0
+REPLACE_CLAUDE=0
 DRY_RUN=0
 for arg in "$@"; do
   case "$arg" in
     --skip-secrets) SKIP_SECRETS=1 ;;
+    --skip-claude) SKIP_CLAUDE=1 ;;
+    --replace-claude-config) REPLACE_CLAUDE=1 ;;
     --dry-run) DRY_RUN=1 ;;
     *) echo "unknown flag: $arg" >&2; exit 2 ;;
   esac
 done
+
+# shellcheck source=lib/helpers.sh
+. "$REPO/lib/helpers.sh"
 
 step()  { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
 info()  { printf '    %s\n' "$*"; }
@@ -26,49 +33,8 @@ die()   { printf '\n\033[31mERROR: %s\033[0m\n' "$*" >&2; exit 1; }
 # Every filesystem write and state change goes through one of these three, so
 # --dry-run genuinely touches nothing.
 run()   { if [ "$DRY_RUN" = 1 ]; then info "would run: $*"; else "$@"; fi; }
-copy()  { # copy <src> <dst>
-  if [ "$DRY_RUN" = 1 ]; then info "would back up $1 -> $2"; else cp "$1" "$2"; fi
-}
-# Recursively expand __HOME__ in a copied tree.
-expand_home() {
-  grep -rl '__HOME__' "$1" 2>/dev/null | while read -r f; do
-    python3 -c "
-import os,sys
-p=sys.argv[1]
-s=open(p).read().replace('__HOME__', os.path.expanduser('~'))
-open(p,'w').write(s)" "$f"
-  done
-}
-
-# Recursive copy that mirrors the source, dropping build and cache artefacts.
-# Written in python rather than rsync so it works wherever python3 does, which
-# includes Windows under Git Bash or WSL, where rsync is not installed.
-copy_tree() { # copy_tree <srcdir> <dstdir>
-  python3 -c "
-import os,shutil,sys
-src,dst=sys.argv[1],sys.argv[2]
-SKIP={'node_modules','dist','.git','__pycache__','.DS_Store'}
-if os.path.isdir(dst): shutil.rmtree(dst)
-for root,dirs,files in os.walk(src):
-    dirs[:]=[d for d in dirs if d not in SKIP]
-    rel=os.path.relpath(root,src)
-    out=dst if rel=='.' else os.path.join(dst,rel)
-    os.makedirs(out,exist_ok=True)
-    for f in files:
-        if f in SKIP: continue
-        shutil.copy2(os.path.join(root,f),os.path.join(out,f))
-" "$1" "$2"
-}
 # Install a file, expanding the __HOME__ placeholder to this machine's home.
 # Committed copies carry __HOME__ so the repo is not tied to one account.
-put()   { # put <src> <dst> <mode>
-  if [ "$DRY_RUN" = 1 ]; then info "would install $2"; return; fi
-  python3 -c "
-import os,sys
-s=open(sys.argv[1]).read().replace('__HOME__', os.path.expanduser('~'))
-open(sys.argv[2],'w').write(s)" "$1" "$2"
-  chmod "$3" "$2"
-}
 
 # ---------------------------------------------------------------- prereqs ---
 step "Checking platform and prerequisites"
@@ -213,14 +179,17 @@ PLUGIN_COUNT=$(python3 -c "import json;print(len(json.load(open('$MANIFEST/plugi
 step "Installing plugins (this is the slow part; $PLUGIN_COUNT plugins)"
 python3 - "$MANIFEST/plugins.json" > /tmp/bb-setup-plugins.txt <<'PY'
 import json,sys
+# Field order: state, id, install target, subdirectory, tagPrefix.
+# The catalog form is a bare id@marketplace; the git form carries flags.
 for p in json.load(open(sys.argv[1])):
     state='SKIP' if p.get('unavailable') else ('1' if p['enabled'] else '0')
-    print(state, p['id'], p.get('source',''), p.get('subdirectory',''))
+    target=p['catalog']+'@bb-community' if p.get('catalog') else p.get('source','')
+    print(state, p['id'], target, p.get('subdirectory',''), p.get('tagPrefix',''))
 PY
 
 install_count=0
 : > /tmp/bb-setup-failures.txt
-while read -r enabled id source subdir; do
+while read -r enabled id target subdir tagprefix; do
   [ -n "$id" ] || continue
   if [ "$enabled" = "SKIP" ]; then
     warn "skipping $id: $(python3 -c "
@@ -232,11 +201,16 @@ import json;print(next(r.get('unavailable','') for r in json.load(open('$MANIFES
   if bb plugin list --json 2>/dev/null | python3 -c "import json,sys;print(any(p['id']=='$id' for p in json.load(sys.stdin)['plugins']))" | grep -q True; then
     info "present  $id"
   else
-    if [ -n "$subdir" ]; then
-      bb plugin install "$source" --subdirectory "$subdir" --yes --json >/dev/null 2>&1 \
+    # A monorepo needs its subdirectory, and often a tag prefix, or bb cannot
+    # tell which plugin inside the repository is meant.
+    if [ -n "$subdir" ] || [ -n "$tagprefix" ]; then
+      flags=""
+      [ -n "$subdir" ] && flags="--subdirectory $subdir"
+      [ -n "$tagprefix" ] && flags="$flags --tag-prefix $tagprefix"
+      bb plugin install "$target" $flags --yes --json >/dev/null 2>&1 \
         && info "installed $id ($subdir)" || { warn "FAILED $id"; echo "$id" >> /tmp/bb-setup-failures.txt; }
     else
-      bb plugin install "$source" --yes --json >/dev/null 2>&1 \
+      bb plugin install "$target" --yes --json >/dev/null 2>&1 \
         && info "installed $id" || { warn "FAILED $id"; echo "$id" >> /tmp/bb-setup-failures.txt; }
     fi
     install_count=$((install_count+1))
@@ -344,7 +318,7 @@ fi
 
 # ---------------------------------------------------------- claude code ---
 step "Installing Claude Code config (CLAUDE.md, hooks, reference docs)"
-if [ "$DRY_RUN" = 0 ]; then
+if [ "$DRY_RUN" = 0 ] && [ "$SKIP_CLAUDE" = 0 ]; then
   mkdir -p "$HOME/.claude/hooks" "$HOME/.claude/reference" "$HOME/.claude/scripts"
 fi
 put "$FILES/claude-CLAUDE.md" "$HOME/.claude/CLAUDE.md" 644
@@ -354,28 +328,25 @@ for f in "$FILES"/claude-scripts/*.sh; do [ -f "$f" ] && put "$f" "$HOME/.claude
 if [ -f "$FILES/claude-statusline-command.sh" ]; then put "$FILES/claude-statusline-command.sh" "$HOME/.claude/statusline-command.sh" 644; fi
 if [ -f "$FILES/ccstatusline-settings.json" ]; then put "$FILES/ccstatusline-settings.json" "$HOME/.config/ccstatusline/settings.json" 644; fi
 
-# Merge settings.json rather than overwrite: hooks + permissions + model,
-# preserving anything else already there.
-if [ "$DRY_RUN" = 0 ]; then
-  python3 - "$FILES/claude-settings.json" "$HOME/.claude/settings.json" <<'PY'
-import json,os,re,sys
-src,dst=sys.argv[1],sys.argv[2]
-raw=open(src).read()
-raw=re.sub(r'(?m)^(\s*"(?:command|env)"\s*:\s*)"(/Users/adamtracht|/Users/[^/"]+)"',
-           lambda m: m.group(1)+'"'+os.path.expanduser('~')+'"', raw)
-want=json.loads(raw)
-cur=json.load(open(dst)) if os.path.exists(dst) else {}
-for k,v in want.items():
-    if k=='permissions':
-        merged=dict(cur.get('permissions',{}))
-        for pk,pv in v.items():
-            merged[pk]=sorted(set(merged.get(pk,[]))|set(pv))
-        cur[k]=merged
-    else:
-        cur[k]=v
-json.dump(cur,open(dst,'w'),indent=2)
-print('    ~/.claude/settings.json merged (%d top-level keys)'%len(cur))
-PY
+# Claude Code settings are merged, not overwritten, so a machine that already has
+# Claude Code set up keeps its own plugins, marketplaces, env, and hooks. Use
+# --replace-claude-config on a clean machine to reproduce exactly, or --skip-claude
+# to leave the file alone entirely.
+if [ "$SKIP_CLAUDE" = 1 ]; then
+  step "Skipping Claude Code configuration"
+  info "pass --skip-claude to omit; removing the flag installs it"
+elif [ "$DRY_RUN" = 1 ]; then
+  step "Merging Claude Code settings"
+  info "would merge ~/.claude/settings.json (existing plugins, env, and hooks are kept)"
+else
+  step "Merging Claude Code settings"
+  if [ -f "$HOME/.claude/settings.json" ]; then
+    info "merging into the existing ~/.claude/settings.json"
+  else
+    info "creating ~/.claude/settings.json"
+  fi
+  mkdir -p "$HOME/.claude/hooks" "$HOME/.claude/reference" "$HOME/.claude/scripts"
+  merge_claude_settings "$FILES/claude-settings.json" "$HOME/.claude/settings.json" "$REPLACE_CLAUDE" | while read -r line; do info "$line"; done
 fi
 
 # -------------------------------------------------------------- opencode ---

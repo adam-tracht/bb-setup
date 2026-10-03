@@ -8,7 +8,7 @@ Captured from bb 0.44.0. Exact tool versions are recorded in `manifest/versions.
 
 ## Contents
 
-- 35 non-builtin bb plugins, with enabled and disabled states recorded
+- 31 non-builtin bb plugins, with enabled and disabled states recorded
 - 8 bb user skills
 - 2 custom ACP agents, with their launch shims
 - bb general settings, appearance, experiments, sidebar and thread-list preferences
@@ -119,8 +119,19 @@ cd bb-setup
 ./bootstrap.sh
 ```
 
-Flags: `--dry-run` prints every change without touching the filesystem.
-`--skip-secrets` leaves API keys for later.
+Flags:
+
+| Flag | Effect |
+| --- | --- |
+| `--dry-run` | Print every change without touching the filesystem |
+| `--skip-secrets` | Leave the API keys for a later run |
+| `--skip-claude` | Leave the whole Claude Code step alone |
+| `--replace-claude-config` | Overwrite Claude Code settings instead of merging |
+
+Claude Code settings are **merged**, not overwritten: an existing machine keeps
+its own plugins, marketplaces, env vars, hooks, and preferences, and this adds
+only what is missing. `--replace-claude-config` reproduces the captured file
+exactly, which is what a clean machine wants.
 
 The script is idempotent. Re-run it after any change to `manifest/`.
 
@@ -138,8 +149,11 @@ The script is idempotent. Re-run it after any change to `manifest/`.
    the Prime Agent shim to use whatever `prime-agent` is on `PATH`.
 6. **Marketplaces.** Adds every marketplace in `manifest/marketplaces.json`.
 7. **Plugins.** Installs each plugin in `manifest/plugins.json`, then enables or
-   disables it to match. A failure is summarised as a list at the end rather
-   than only inline.
+   disables it to match. A plugin listed as `catalog` installs by catalog entry
+   (`<id>@bb-community`), which carries the subdirectory, version range, and tag
+   prefix together; anything else installs from its recorded source, adding
+   `--subdirectory` and `--tag-prefix` for a monorepo. A failure is summarised
+   as a list at the end rather than only inline.
 8. **Builtin plugins.** Disables the builtins listed in
    `manifest/builtin-plugins.json`. Only exceptions are recorded, so builtins
    added by a later bb release keep their own default.
@@ -235,7 +249,7 @@ verify.sh       checks an installation, non-zero exit on failure
 capture.sh      re-snapshots manifest/ from a live bb
 
 manifest/       declarative state, one file per concern
-  plugins.json            35 plugins: source and enabled state
+  plugins.json            31 plugins: catalog entry or source, plus enabled state
   builtin-plugins.json    builtin plugins switched off (exceptions only)
   plugin-config.json      settings per plugin
   bb-settings.json        general settings, experiments, appearance

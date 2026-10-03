@@ -15,59 +15,80 @@ step() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
 
 step "plugins"
 bb plugin list --json > /tmp/bb-cap-plugins.json
-python3 - <<'PY'
-import json,os
-old={}
-if os.path.exists('manifest/plugins.json'):
-    old={p['id']:p for p in json.load(open('manifest/plugins.json'))}
-rows=[]; lost=[]; unavailable=[]
-for p in json.load(open('/tmp/bb-cap-plugins.json'))['plugins']:
-    pid,s=p['id'],p['source']
-    if s.startswith('builtin:'):
-        continue                      # ships with the app, nothing to record
-    prev=old.get(pid,{})
-    # Carry forward a hand-written availability note. It records a fact about the
-    # upstream source (private, renamed, untagged) that a re-snapshot cannot
-    # rediscover, so it must survive or the row would silently try to install.
-    if prev.get('unavailable'):
-        prev['enabled']=p['enabled']
-        rows.append(prev); unavailable.append(pid); continue
-    if s.startswith('path:'):
-        remote=prev.get('source') or prev.get('bundled')
-        if remote:
-            print('  ~ %s still installs from a local path (%s); keeping %s'%(pid,s,remote))
-            r={'id':pid,'source':remote,'enabled':p['enabled']}
-            if prev.get('subdirectory'): r['subdirectory']=prev['subdirectory']
-            if prev.get('note'): r['note']=prev['note']
-            rows.append(r); continue
-        print('  ! %s installs from a local path with no recorded source: %s'%(pid,s))
-        print('    it will NOT be reproducible on another machine. Fix one of:')
-        print('      - push it to a git repo and set "source" in manifest/plugins.json')
-        print('      - push it to a git repo and set "source" in manifest/plugins.json')
-        lost.append(pid); continue
-    rows.append({'id':pid,'source':s,'enabled':p['enabled']})
-rows.sort(key=lambda r:(not r['enabled'], r['id']))
-json.dump(rows,open('manifest/plugins.json','w'),indent=2)
-print('  %d plugins recorded (%d marked unavailable: %s)'%(len(rows),len(unavailable),', '.join(unavailable) or 'none'))
-if lost:
-    print('  !! %d plugin(s) need a source before this snapshot is portable: %s'%(len(lost),', '.join(lost)))
-PY
+curl -sf "https://getbb.app/marketplace/v2/marketplace.json" -o /tmp/bb-cap-catalog.json || echo '{}' > /tmp/bb-cap-catalog.json
+python3 - <<'PYEOF'
+import json, os, sqlite3
 
-step "builtin plugins that are switched off"
-bb plugin list --json > /tmp/bb-cap-bpl.json
-python3 - <<'PY'
-import json
-ps=json.load(open('/tmp/bb-cap-bpl.json'))['plugins']
-disabled=sorted(p['id'] for p in ps if p['source'].startswith('builtin:') and not p['enabled'])
-out={
- "_comment": ("Builtin plugins switched off on the source machine. Only exceptions are "
-              "listed, so a future bb release that adds builtins is left at its own "
-              "default. Apply with: bb plugin disable <id>."),
- "disabled": disabled,
-}
-json.dump(out,open('manifest/builtin-plugins.json','w'),indent=2)
-print('  %d builtin(s) switched off: %s'%(len(disabled),', '.join(disabled) or 'none'))
-PY
+CATALOG = {}
+try:
+    for i in json.load(open('/tmp/bb-cap-catalog.json')).get('plugins', []):
+        CATALOG[i['id']] = i
+except Exception:
+    pass
+
+db = sqlite3.connect('file:%s?mode=ro' % os.path.expanduser('~/.bb/bb.db'), uri=True)
+db.row_factory = sqlite3.Row
+cols = ('source_kind source_git_url source_git_subdirectory source_git_range '
+        'source_git_tag_prefix source_npm_package').split()
+rows = {r['id']: r for r in db.execute('select id,' + ','.join(cols) + ' from plugins')}
+
+installed = {p['id']: p for p in json.load(open('/tmp/bb-cap-plugins.json'))['plugins']}
+old = {}
+if os.path.exists('manifest/plugins.json'):
+    old = {p['id']: p for p in json.load(open('manifest/plugins.json'))}
+
+out, lost = [], []
+for pid, p in installed.items():
+    if p['source'].startswith('builtin:'):
+        continue
+    r = rows.get(pid)
+    e = {'id': pid, 'enabled': p['enabled']}
+    prev = old.get(pid, {})
+    if not prev and not p['enabled']:
+        # Disabled here and absent from the manifest means it was deliberately
+        # dropped: it could not be reproduced, or it was removed from the setup.
+        # Recording it again would resurrect a plugin that no longer belongs.
+        continue
+    if prev.get('unavailable'):
+        # A recorded reason is the only place this exists; bb does not know it.
+        e['unavailable'] = prev['unavailable']
+        for k in ('source', 'subdirectory', 'tagPrefix'):
+            if prev.get(k):
+                e[k] = prev[k]
+        out.append(e)
+        continue
+    if pid in CATALOG:
+        e['catalog'] = pid
+        out.append(e)
+        continue
+    if r and r['source_kind'] == 'npm' and r['source_npm_package']:
+        e['source'] = 'npm:' + r['source_npm_package']
+        out.append(e)
+        continue
+    src = old.get(pid, {}).get('source', '')
+    if not src or src.startswith('path:'):
+        lost.append(pid)
+        continue
+    # Prefer the database, but fall back to the manifest: a plugin installed from
+    # a local checkout has no git metadata recorded, and the subdirectory it
+    # lives in is the only thing that makes it installable elsewhere.
+    sub = (r['source_git_subdirectory'] if r else None) or prev.get('subdirectory')
+    tp = (r['source_git_tag_prefix'] if r else None) or prev.get('tagPrefix')
+    if sub:
+        e['subdirectory'] = sub
+    if tp:
+        e['tagPrefix'] = tp
+    e['source'] = src
+    out.append(e)
+
+out.sort(key=lambda x: (not x['enabled'], x['id']))
+json.dump(out, open('manifest/plugins.json', 'w'), indent=2)
+ncat = sum(1 for x in out if 'catalog' in x)
+print('  %d plugins recorded (%d via the catalog, %d with an explicit source)'
+      % (len(out), ncat, len(out) - ncat))
+if lost:
+    print('  !! dropped, local path with no recorded source: %s' % ', '.join(sorted(lost)))
+PYEOF
 
 step "bb settings"
 bb settings show --json > /tmp/bb-cap-settings.json
@@ -180,6 +201,13 @@ for t in opencode ocx; do
 done
 } > manifest/versions.txt
 echo "  versions captured"
+
+# json.dump writes no trailing newline, which shows as diff noise on every
+# capture. Normalise once here rather than at each write site.
+for f in manifest/*.json; do
+  [ -s "$f" ] || continue
+  [ -n "$(tail -c1 "$f")" ] && printf '\n' >> "$f"
+done
 
 step "review the diff"
 git -C "$REPO" --no-pager diff --stat -- manifest/ || true

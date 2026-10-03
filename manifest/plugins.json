@@ -1,178 +1,158 @@
 [
   {
     "id": "agent-checklists",
-    "source": "https://github.com/patleeman/bb-plugins",
-    "enabled": true
+    "enabled": true,
+    "catalog": "agent-checklists"
   },
   {
     "id": "bb-factory",
-    "source": "git:https://github.com/adam-tracht/bb-factory.git@semver:^0.1.0",
-    "enabled": true
+    "enabled": true,
+    "source": "git:https://github.com/adam-tracht/bb-factory.git@semver:^0.1.0"
   },
   {
     "id": "bb-sidebar",
-    "source": "git:https://github.com/yusuf8834/bb-sidebar.git@semver:^0.2.0",
-    "enabled": true
+    "enabled": true,
+    "catalog": "bb-sidebar"
   },
   {
     "id": "copy-session-id",
-    "source": "git:https://github.com/patleeman/bb-plugins.git@semver:copy-session-id/:^0.1.0",
-    "enabled": true
+    "enabled": true,
+    "catalog": "copy-session-id"
   },
   {
     "id": "emoji-react",
-    "source": "git:https://github.com/patleeman/bb-plugins.git@semver:^0.1.0",
-    "enabled": true
+    "enabled": true,
+    "catalog": "emoji-react"
   },
   {
     "id": "file-manager",
-    "source": "git:https://github.com/xMinor-1/bb-plugins.git@semver:file-manager/:^0.8.0",
-    "enabled": true
+    "enabled": true,
+    "catalog": "file-manager"
   },
   {
     "id": "headroom",
-    "source": "git:https://github.com/prismatic7/bb-plugin-headroom.git@semver:^0.2.0",
-    "enabled": true
+    "enabled": true,
+    "catalog": "headroom"
   },
   {
     "id": "image-preview",
-    "source": "git:https://github.com/Dwite/bb-plugin-image-preview.git@semver:^0.1.0",
-    "enabled": true
+    "enabled": true,
+    "catalog": "image-preview"
   },
   {
     "id": "liquid-glass",
-    "source": "git:https://github.com/luisllenin02/bb-plugin-liquid-glass.git@semver:^0.5.4",
-    "enabled": true
+    "enabled": true,
+    "catalog": "liquid-glass"
   },
   {
     "id": "message-timestamps",
-    "source": "git:https://github.com/bighitbiker3/bb-plugin-message-timestamps.git@semver:^0.1.0",
-    "enabled": true
+    "enabled": true,
+    "catalog": "message-timestamps"
   },
   {
     "id": "model-presets",
-    "source": "git:https://github.com/xkrsz/bb-model-presets.git@semver:^0.1.0",
-    "enabled": true
+    "enabled": true,
+    "catalog": "model-presets"
   },
   {
     "id": "prime-agent",
-    "source": "git:https://github.com/patleeman/bb-plugins.git@semver:^0.1.0",
-    "enabled": true
+    "enabled": true,
+    "subdirectory": "packages/bb-plugin-prime-agent",
+    "source": "git:https://github.com/patleeman/bb-plugins.git@main"
   },
   {
     "id": "project-instructions",
-    "source": "git:https://github.com/Hazihell/bb-plugin-project-instructions.git@semver:^0.1.0",
-    "enabled": true
+    "enabled": true,
+    "catalog": "project-instructions"
   },
   {
     "id": "read-aloud",
-    "source": "git:https://github.com/csells/bb-plugins.git@semver:read-aloud/:^0.1.1",
-    "enabled": true
+    "enabled": true,
+    "catalog": "read-aloud"
   },
   {
     "id": "sidebar-sync",
-    "source": "git:https://github.com/MGrin/bb-plugin-sidebar-sync@main",
-    "enabled": true
+    "enabled": true,
+    "source": "git:https://github.com/MGrin/bb-plugin-sidebar-sync@main"
   },
   {
     "id": "system",
-    "source": "git:https://github.com/MGrin/bb-plugin-system.git@main",
-    "enabled": true
+    "enabled": true,
+    "source": "git:https://github.com/MGrin/bb-plugin-system.git@main"
   },
   {
     "id": "t3sidebar",
-    "source": "git:https://github.com/SawyerHood/bb-plugin-t3sidebar.git@semver:^0.1.0",
-    "enabled": true
+    "enabled": true,
+    "catalog": "t3sidebar"
   },
   {
     "id": "thread-organizer",
-    "source": "git:https://github.com/brsbl/bb-plugins.git@plugin/thread-organizer",
-    "enabled": true
+    "enabled": true,
+    "catalog": "thread-organizer"
   },
   {
     "id": "usage",
-    "source": "git:https://github.com/MayankBansal12/bb-plugin-usage.git@main",
-    "enabled": true
+    "enabled": true,
+    "catalog": "usage"
   },
   {
     "id": "usage-tracker",
-    "source": "git:https://github.com/MateoCerquetella/bb-plugins.git@main",
-    "enabled": true
+    "enabled": true,
+    "catalog": "usage-tracker"
   },
   {
     "id": "vercel-theme",
-    "source": "git:https://github.com/divyesh-puri/bb-plugin-vercel-theme.git@semver:^0.1.0",
-    "enabled": true
+    "enabled": true,
+    "catalog": "vercel-theme"
   },
   {
     "id": "workspace-skills",
-    "source": "git:https://github.com/VanDalkvist/bb-plugin-workspace-skills.git@semver:^0.1.0",
-    "enabled": true
+    "enabled": true,
+    "catalog": "workspace-skills"
   },
   {
     "id": "agentation",
-    "source": "npm:@smsunarto/bb-plugin-agentation",
-    "enabled": false
+    "enabled": false,
+    "catalog": "agentation"
   },
   {
     "id": "arc-switcher",
-    "source": "https://github.com/bighitbiker3/bb-plugin-arc-switcher",
-    "enabled": false
+    "enabled": false,
+    "catalog": "arc-switcher"
   },
   {
     "id": "beautiful-chat",
-    "source": "git:https://github.com/diip3sh/bb-plugin-beautiful-chat.git@semver:^0.1.0",
-    "enabled": false
+    "enabled": false,
+    "catalog": "beautiful-chat"
   },
   {
     "id": "files",
-    "source": "git:https://github.com/Diffuzmetall/bb-plugin-files.git@semver:^0.1.0",
-    "enabled": false
+    "enabled": false,
+    "catalog": "files"
   },
   {
     "id": "glass",
-    "source": "git:https://github.com/notpritam/bb-plugin-glass.git@semver:^0.2.0",
-    "enabled": false
-  },
-  {
-    "id": "gtd-sidebar",
-    "source": "git:https://github.com/smsunarto/bb-plugins.git@semver:gtd-sidebar/:^0.4.0",
-    "enabled": false
+    "enabled": false,
+    "catalog": "glass"
   },
   {
     "id": "handsfree",
-    "source": "git:https://github.com/swairshah/bb-handsfree.git@semver:^0.1.0",
-    "enabled": false
+    "enabled": false,
+    "catalog": "handsfree"
   },
   {
     "id": "md-annotate",
-    "source": "git:https://github.com/DarrenTsung/bb-plugin-md-annotate@main",
-    "enabled": false
-  },
-  {
-    "id": "next-steps",
-    "source": "git:https://github.com/portseif/bb-plugin-next-steps@main",
     "enabled": false,
-    "note": "no release tags upstream, so pinned to main rather than a semver range"
+    "source": "git:https://github.com/DarrenTsung/bb-plugin-md-annotate@main"
   },
   {
     "id": "notify",
-    "source": "https://github.com/smsunarto/bb-plugins",
-    "enabled": false
-  },
-  {
-    "id": "sessions",
-    "source": "git:https://github.com/patleeman/bb-plugins.git@semver:^0.1.0",
-    "enabled": false
-  },
-  {
-    "id": "telemetry",
-    "source": "git:https://github.com/patleeman/bb-plugins.git@semver:^0.1.0",
-    "enabled": false
+    "enabled": false,
+    "catalog": "notify"
   },
   {
     "id": "todo",
-    "source": "git:https://github.com/agustif/bb-plugin-todo.git@main",
-    "enabled": false
+    "enabled": false,
+    "source": "git:https://github.com/agustif/bb-plugin-todo.git@main"
   }
 ]
