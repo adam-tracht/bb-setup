@@ -1,9 +1,36 @@
 ---
 name: model-routing
-description: How Adam's model routing works on his Mac (bb pickers, Claude Code, the opencodex proxy, provider keys, Codex catalog, scheduled catalog refresh). Use when a model is missing or mislabeled in a bb or Codex model picker, a provider returns 401/400, a catalog is stale, `ocx sync` or `ocx sync-cache` fails, a new model release is not showing up, or before changing any provider key or proxy setting.
+description: How this machine's model routing works (bb pickers, Claude Code, the opencodex proxy, provider keys, Codex catalog, scheduled catalog refresh). Use when a model is missing or mislabeled in a bb or Codex model picker, a provider returns 401/400, a catalog is stale, `ocx sync` or `ocx sync-cache` fails, a new model release is not showing up, or before changing any provider key or proxy setting.
 ---
 
 # Model routing: diagnose before you assert
+
+## Two failures that are not key or version problems
+
+**"This Go model requires Global regions. Select Global in your workspace's
+Privacy settings."** DeepSeek models on OpenCode Go (`deepseek-v4.1-flash`,
+`deepseek-v4-flash`) fail this way. The key is fine. It is an account-side
+setting on OpenCode, so no local command fixes it; the region has to be changed
+in the OpenCode workspace settings.
+
+**A model listed in the proxy but absent from the provider's live roster.** Seen
+on opencode-go: `glm-5`, `grok-4.5`, `kimi-k2.5`, `ox-alpha-free`,
+`qwen3.5-plus`, `union-alpha` were advertised by the proxy and errored when
+picked. Compare the proxy's `/v1/models` with the provider's own endpoint
+(`https://opencode.ai/zen/go/v1/models`) before treating a listed model as
+available. `catalog-maintenance` refreshes catalogs but does not prune models the
+provider has withdrawn.
+
+**A provider with no key still lists every model it knows about.** Claude Code
+showed roughly 740 models, about 640 of them unusable. Set `"disabled": true` on
+that provider in `~/.opencodex/config.json`; the settings stay but the provider
+drops out of routing and listings. Clear it when a key arrives.
+
+**Editing `~/.opencodex/config.json` is not enough on its own.** `ocx sync`
+refreshes the Codex catalog, but the running proxy's `/v1/models`, which is what
+Claude Code reads, only changes after `ocx service restart`. Restart bb too: it
+inherits `ANTHROPIC_BASE_URL` at launch, so a bb started before the proxy was
+configured keeps a stale environment and its Claude picker looks wrong.
 
 ## Common operations (verified Sep 2026, ocx 2.63.0)
 
@@ -32,6 +59,6 @@ Every layer here has changed under us before. Read `reference.md` in this folder
 Rules:
 - Never state a CLI flag without checking its real usage first. `ocx <cmd> --help` often prints only the top-level help. A bogus flag prints usage on most subcommands, but NOT on ones that act: `ocx update --bogus` ignored the flag and ran the update. For a command that changes anything, read `src/cli/` in the installed package instead.
 - Never edit `~/.opencodex/config.json` without a timestamped backup beside it.
-- Never ask Adam to paste a secret in chat. Give a `read -rs` terminal snippet that tests before it saves.
+- Never ask for a secret to be pasted in chat. Give a `read -rs` terminal snippet that tests before it saves.
 - A missing picker row is fixed at its source, never with a local `customModels` or settings bandaid.
 - If what you learn contradicts reference.md, edit reference.md in the same session.

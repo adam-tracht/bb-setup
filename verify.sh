@@ -159,9 +159,22 @@ echo "providers"
 if command -v bb >/dev/null; then
   prov="$(bb provider list 2>/dev/null | tail -n +3 | awk '{print $1}' | tr '\n' ' ')"
   note "found: $prov"
-  for p in codex claude-code acp-devin acp-prime-agent; do
+  # Required: without these there is no thread to run.
+  for p in codex claude-code; do
     case " $prov " in *" $p "*) ok "provider $p" ;; *) no "provider $p missing" ;; esac
   done
+  # Optional: these ACP agents appear only when their own CLI is installed and
+  # signed in. A missing one is a gap in the setup, not a failed install.
+  for p in acp-devin acp-prime-agent; do
+    case " $prov " in
+      *" $p "*) ok "provider $p" ;;
+      *) note "provider $p not present; its CLI is not installed or not signed in, so it is skipped rather than failed" ;;
+    esac
+  done
+  case " $prov " in
+    *" acp-opencode "*) ok "provider acp-opencode" ;;
+    *) note "provider acp-opencode not present; install with: npm install -g opencode-ai" ;;
+  esac
 fi
 
 echo
@@ -178,6 +191,15 @@ echo
 echo "opencodex proxy"
 if command -v ocx >/dev/null; then
   ocx status >/dev/null 2>&1 && ok "ocx proxy responding" || { no "ocx proxy not running"; note "ocx service && ocx sync"; }
+  # The proxy sets ANTHROPIC_BASE_URL for the whole user session, so a stopped
+  # proxy breaks every Claude app launched after it stopped.
+  env_url="$(launchctl getenv ANTHROPIC_BASE_URL 2>/dev/null || true)"
+  if [ -n "$env_url" ]; then
+    ok "ANTHROPIC_BASE_URL points at the proxy ($env_url)"
+    note "if the proxy is not running, Claude apps cannot reach Anthropic at all"
+  else
+    note "ANTHROPIC_BASE_URL is not set, so Claude apps are not routed through the proxy"
+  fi
   CFG="$HOME/.opencodex/config.json"
   if [ -f "$CFG" ]; then
     perm="$(perm_of "$CFG")"

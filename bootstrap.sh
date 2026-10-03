@@ -8,20 +8,27 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MANIFEST="$REPO/manifest"
 FILES="$REPO/files"
 BB_DATA="${BB_DATA_DIR:-$HOME/.bb}"
+OC_KEYFILE="$HOME/.config/opencode/opencode-api-key"
 
 SKIP_SECRETS=0
-SKIP_CLAUDE=0
-REPLACE_CLAUDE=0
+CLAUDE_MODE=merge
 DRY_RUN=0
 for arg in "$@"; do
   case "$arg" in
     --skip-secrets) SKIP_SECRETS=1 ;;
-    --skip-claude) SKIP_CLAUDE=1 ;;
-    --replace-claude-config) REPLACE_CLAUDE=1 ;;
+    --claude=*) CLAUDE_MODE="${arg#--claude=}" ;;
+    --replace-claude-config) CLAUDE_MODE=replace ;;
     --dry-run) DRY_RUN=1 ;;
     *) echo "unknown flag: $arg" >&2; exit 2 ;;
   esac
 done
+
+case "$CLAUDE_MODE" in
+  merge|replace|instructions-only|skip) ;;
+  *) echo "--claude must be one of: merge, replace, instructions-only, skip (got '$CLAUDE_MODE')" >&2; exit 2 ;;
+esac
+SKIP_CLAUDE=0
+[ "$CLAUDE_MODE" = "skip" ] && SKIP_CLAUDE=1
 
 # shellcheck source=lib/helpers.sh
 . "$REPO/lib/helpers.sh"
@@ -68,6 +75,22 @@ info "node $(node --version 2>/dev/null || echo 'not installed')"
 info "rtk $(rtk --version 2>/dev/null | head -1 || echo 'not installed')"
 mkdir -p "$BB_DATA"
 
+# The bb CLI. The desktop app does not put it on PATH, and every step below calls
+# it, so check for it before doing any work. The app records its own version,
+# which pins the npm package to the same build rather than whatever is latest.
+if ! command -v bb >/dev/null 2>&1; then
+  APP_VER=""
+  for f in "$BB_DATA/bb-app-runtime.json"; do
+    [ -f "$f" ] && APP_VER="$(python3 -c "import json;print(json.load(open('$f')).get('version',''))" 2>/dev/null || true)"
+  done
+  [ -n "$APP_VER" ] || APP_VER="latest"
+  die "bb is not on PATH, and every step here needs it.
+  The desktop app does not add it. Install the CLI matching the app:
+    npm install -g --allow-scripts=better-sqlite3,node-pty,@parcel/watcher bb-app@${APP_VER}
+  (version ${APP_VER} read from ~/.bb/bb-app-runtime.json). Then re-run this script."
+fi
+info "bb $(bb --version 2>/dev/null || echo '?') at $(command -v bb)"
+
 # ------------------------------------------------------- provider tooling ---
 # bb installs and updates its own provider CLIs (codex, claude-code, pi, cursor).
 # Do not npm-install those: a second copy on PATH shadows the one bb manages and
@@ -99,13 +122,25 @@ for cli in codex claude; do
   fi
 done
 
-for opt in opencode ocx; do
-  if command -v "$opt" >/dev/null; then
-    info "$opt present ($("$opt" --version 2>/dev/null | head -1))"
-  else
-    warn "$opt missing. Needed for: $([ "$opt" = opencode ] && echo 'the acp-opencode provider' || echo 'the model-routing proxy'). Optional; install with: npm install -g $([ "$opt" = opencode ] && echo opencode-ai || echo @bitkyc08/opencodex)"
-  fi
-done
+# opencodex is not optional here. It is the proxy every routed model goes
+# through, and it is what points ANTHROPIC_BASE_URL at the local port. Treat a
+# missing ocx as a reason to install it rather than a warning to ignore.
+if command -v ocx >/dev/null; then
+  info "ocx present ($(ocx --version 2>/dev/null | head -1))"
+elif [ "$DRY_RUN" = 1 ]; then
+  info "would install @bitkyc08/opencodex (required for model routing)"
+else
+  info "installing @bitkyc08/opencodex"
+  npm install -g @bitkyc08/opencodex >/dev/null 2>&1 \
+    && info "installed ocx $(ocx --version 2>/dev/null | head -1)" \
+    || die "could not install @bitkyc08/opencodex. It is required: it proxies every routed model and sets ANTHROPIC_BASE_URL. Install it with: npm install -g @bitkyc08/opencodex"
+fi
+
+if command -v opencode >/dev/null; then
+  info "opencode present ($(opencode --version 2>/dev/null | head -1))"
+else
+  warn "opencode missing, so the acp-opencode provider is unavailable. Install with: npm install -g opencode-ai"
+fi
 
 # ------------------------------------------------------------- bb skills ---
 step "Installing bb user skills"
@@ -321,6 +356,11 @@ step "Installing Claude Code config (CLAUDE.md, hooks, reference docs)"
 if [ "$DRY_RUN" = 0 ] && [ "$SKIP_CLAUDE" = 0 ]; then
   mkdir -p "$HOME/.claude/hooks" "$HOME/.claude/reference" "$HOME/.claude/scripts"
 fi
+if [ -f "$HOME/.claude/CLAUDE.md" ] && ! cmp -s "$FILES/claude-CLAUDE.md" "$HOME/.claude/CLAUDE.md"; then
+  # Never overwrite someone's instructions without a copy to fall back on.
+  _bak="$HOME/.claude/CLAUDE.md.bak-$(date +%Y%m%d-%H%M%S)"
+  copy "$HOME/.claude/CLAUDE.md" "$_bak" && [ "$DRY_RUN" = 0 ] && info "backed up the existing CLAUDE.md to $_bak"
+fi
 put "$FILES/claude-CLAUDE.md" "$HOME/.claude/CLAUDE.md" 644
 for f in "$FILES"/claude-hooks/*.sh;   do [ -f "$f" ] && put "$f" "$HOME/.claude/hooks/$(basename "$f")"   755; done
 for f in "$FILES"/claude-reference/*.md; do [ -f "$f" ] && put "$f" "$HOME/.claude/reference/$(basename "$f")" 644; done
@@ -334,19 +374,27 @@ if [ -f "$FILES/ccstatusline-settings.json" ]; then put "$FILES/ccstatusline-set
 # to leave the file alone entirely.
 if [ "$SKIP_CLAUDE" = 1 ]; then
   step "Skipping Claude Code configuration"
-  info "pass --skip-claude to omit; removing the flag installs it"
+  info "omit --claude=skip to install it"
 elif [ "$DRY_RUN" = 1 ]; then
-  step "Merging Claude Code settings"
-  info "would merge ~/.claude/settings.json (existing plugins, env, and hooks are kept)"
+  step "Claude Code configuration (--claude=$CLAUDE_MODE)"
+  case "$CLAUDE_MODE" in
+    instructions-only) info "would install CLAUDE.md and reference docs only; settings.json, hooks and plugins untouched" ;;
+    skip) info "would do nothing" ;;
+    *) info "would merge ~/.claude/settings.json (existing plugins, env and hooks are kept)" ;;
+  esac
 else
-  step "Merging Claude Code settings"
-  if [ -f "$HOME/.claude/settings.json" ]; then
+  step "Claude Code configuration (--claude=$CLAUDE_MODE)"
+  if [ "$CLAUDE_MODE" != "instructions-only" ] && [ -f "$HOME/.claude/settings.json" ]; then
     info "merging into the existing ~/.claude/settings.json"
-  else
+  elif [ "$CLAUDE_MODE" != "instructions-only" ]; then
     info "creating ~/.claude/settings.json"
   fi
-  mkdir -p "$HOME/.claude/hooks" "$HOME/.claude/reference" "$HOME/.claude/scripts"
-  merge_claude_settings "$FILES/claude-settings.json" "$HOME/.claude/settings.json" "$REPLACE_CLAUDE" | while read -r line; do info "$line"; done
+  if [ "$CLAUDE_MODE" != "instructions-only" ]; then
+    mkdir -p "$HOME/.claude/hooks" "$HOME/.claude/reference" "$HOME/.claude/scripts"
+    merge_claude_settings "$FILES/claude-settings.json" "$HOME/.claude/settings.json" "$([ "$CLAUDE_MODE" = replace ] && echo 1 || echo 0)" | while read -r line; do info "$line"; done
+  else
+    info "instructions-only: CLAUDE.md and reference docs, leaving settings.json, hooks and plugins alone"
+  fi
 fi
 
 # -------------------------------------------------------------- opencode ---
@@ -385,28 +433,87 @@ else
 fi
 
 if [ "$SKIP_SECRETS" = 1 ] || [ "$DRY_RUN" = 1 ]; then
-  warn "skipping API keys (--skip-secrets); see README section 6"
+  warn "skipping API keys (--skip-secrets); see the README for the commands"
 else
-  step "Entering ocx API keys (input is hidden; press Enter to skip)"
-  python3 - "$OCX_CFG" <<'PY'
-import getpass,json,os,sys
-p=sys.argv[1]
-cfg=json.load(open(p))
-providers=cfg.get('providers',{})
-need=[pid for pid,pv in providers.items() if pv.get('apiKey')=='<redacted>']
-for pid in need:
-    print('\n  API key for provider: %s'%pid)
-    val=getpass.getpass('  > ')
-    if val:
-        providers[pid]['apiKey']=val
-        print('    saved')
-    else:
-        print('    skipped (still <redacted>)')
-if need:
-    json.dump(cfg,open(p,'w'),indent=1)
-    os.chmod(p,0o600)
-    print('\n  wrote %s (mode 600)'%p)
-PY
+  step "Entering provider API keys"
+  # One prompt per provider. A provider whose key is skipped is marked disabled
+  # rather than left holding a "<redacted>" placeholder: an unkeyed provider still
+  # advertises every one of its models, which fills the pickers with rows that
+  # cannot answer. See the README for the flag and the restart it needs.
+  python3 - "$OCX_CFG" "$OC_KEYFILE" <<'KEYS'
+import getpass, json, os, stat, sys
+
+cfg_path, oc_keyfile = sys.argv[1], sys.argv[2]
+cfg = json.load(open(cfg_path))
+providers = cfg.get('providers', {})
+
+# The opencode-go provider and the opencode CLI share one key.
+shared_note = '  (also written to ~/.config/opencode/opencode-api-key; both use the same key)'
+
+changed = False
+for pid, pv in providers.items():
+    if not isinstance(pv, dict):
+        continue
+    if pv.get('apiKey') != '<redacted>' and not pv.get('disabled'):
+        continue
+    if pv.get('apiKey') == '<redacted>':
+        print('\n  API key for provider: %s%s' % (pid, shared_note if pid == 'opencode-go' else ''))
+        val = getpass.getpass('  > ')
+        if val:
+            pv['apiKey'] = val
+            pv['disabled'] = False
+            changed = True
+            if pid == 'opencode-go':
+                try:
+                    parent = os.path.dirname(oc_keyfile)
+                    if parent:
+                        os.makedirs(parent, exist_ok=True)
+                    with open(oc_keyfile, 'w') as f:
+                        f.write(val)
+                    os.chmod(oc_keyfile, stat.S_IRUSR | stat.S_IWUSR)
+                    print('    saved to both the proxy config and the opencode key file')
+                except OSError as e:
+                    print('    WARNING: could not write %s: %s' % (oc_keyfile, e))
+            else:
+                print('    saved')
+        else:
+            pv['disabled'] = True
+            print('    skipped, so this provider is disabled and its models are not listed')
+    elif pv.get('disabled'):
+        print('\n  provider %s is disabled; press Enter to leave it disabled' % pid)
+        val = getpass.getpass('  > ')
+        if val:
+            pv['apiKey'] = val
+            pv['disabled'] = False
+            changed = True
+            print('    enabled')
+
+if changed:
+    json.dump(cfg, open(cfg_path, 'w'), indent=1)
+    os.chmod(cfg_path, stat.S_IRUSR | stat.S_IWUSR)
+    print('\n  wrote %s (mode 600)' % cfg_path)
+    print('  Restart the proxy for the change to take effect: ocx service restart')
+KEYS
+fi
+
+# The proxy must be running, not merely installed. ocx registers a launchd job
+# and sets ANTHROPIC_BASE_URL at the user level, so every Claude app started after
+# this points at 127.0.0.1:10100. If the proxy is not running, those apps cannot
+# reach Anthropic at all.
+step "Starting the model-routing proxy"
+if [ "$DRY_RUN" = 1 ]; then
+  info "would run: ocx service   (installs the com.opencodex.proxy launchd job)"
+elif command -v ocx >/dev/null 2>&1; then
+  ocx service >/dev/null 2>&1 && info "proxy service installed and started" \
+    || warn "could not start the proxy with 'ocx service'. Run it by hand, then 'ocx ready' to confirm."
+  sleep 2
+  if ocx ready --json >/dev/null 2>&1; then
+    info "proxy is ready"
+  else
+    warn "the proxy did not report ready. ANTHROPIC_BASE_URL points at it, so Claude apps will fail to reach Anthropic until it is up. Check: ocx status"
+  fi
+else
+  warn "ocx is not installed, so the proxy cannot be started"
 fi
 
 # ------------------------------------------------- ocx scheduled maintenance ---

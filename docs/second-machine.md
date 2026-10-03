@@ -51,8 +51,8 @@ server, and the same projects and threads are visible.
 
 The server listens on loopback only. Remote machines need one of:
 
-- **bb Connect** (already set up here at `https://adam.getbb.app`). The new
-  machine pairs through the same account.
+- **bb Connect**, pairing through a getbb.app account. The new machine
+  pairs against the same account.
 - **A direct URL** that is reachable from the target, such as a private Tailscale
   Serve URL, passed as `--address` when the machine is created.
 

@@ -1,6 +1,6 @@
 # Model routing reference
 
-How models reach Adam's pickers and agents on his Mac. Describes mechanisms and how to check them; version facts go stale, so re-measure them.
+How models reach this machine's pickers and agents. Describes mechanisms and how to check them; version facts go stale, so re-measure them.
 
 ## Layers
 

@@ -95,20 +95,22 @@ non-macOS machine, expect those to be inert rather than absent.
 
 | Requirement | Notes |
 | --- | --- |
-| bb | The desktop app (macOS Apple Silicon, Linux x64, Windows x64) or `npx bb-app@latest`. Its Settings installer also provides the provider CLIs |
+| `bb`, app **and** CLI | **The desktop app does not put the CLI on `PATH`**, and every step here calls it. Install the app, then:<br>`npm install -g --allow-scripts=better-sqlite3,node-pty,@parcel/watcher bb-app@<version>`<br>where `<version>` matches the app, read from `~/.bb/bb-app-runtime.json`. `bootstrap.sh` checks this first and prints the exact command for your version. |
 | `python3` | Required. File copying, path substitution, and the API key prompt all use it |
-| Node.js | Only for the optional npm-installed CLIs below |
+| Node.js | Needed for the npm-installed CLIs below |
 | rtk | Optional, macOS and Linux. Filters shell output for Claude Code via a hook |
 
 **Do not npm-install `codex` or `claude-code`.** bb installs and updates those
 itself, and a second copy earlier in `PATH` shadows the managed one and pins an
 older build. `bootstrap.sh` checks for this and warns.
 
-Two tools are optional and not managed by bb:
+`opencodex` is **not** optional. It is the proxy every routed model goes through
+and the thing that points `ANTHROPIC_BASE_URL` at a local port. `bootstrap.sh`
+installs it if missing and fails loudly if it cannot:
 
 ```bash
-npm install -g opencode-ai          # provides the acp-opencode provider
-npm install -g @bitkyc08/opencodex  # the model-routing proxy (optional)
+npm install -g @bitkyc08/opencodex   # required: the routing proxy
+npm install -g opencode-ai           # optional: the acp-opencode provider
 ```
 
 ## Usage
@@ -125,8 +127,14 @@ Flags:
 | --- | --- |
 | `--dry-run` | Print every change without touching the filesystem |
 | `--skip-secrets` | Leave the API keys for a later run |
-| `--skip-claude` | Leave the whole Claude Code step alone |
-| `--replace-claude-config` | Overwrite Claude Code settings instead of merging |
+| `--claude=merge` | Default: merge into an existing `settings.json` |
+| `--claude=replace` | Overwrite `settings.json` with the captured one |
+| `--claude=instructions-only` | Install `CLAUDE.md` and reference docs only, leaving settings, hooks and plugins alone |
+| `--claude=skip` | Leave the whole Claude Code step alone |
+| `--replace-claude-config` | Shorthand for `--claude=replace` |
+
+An existing `CLAUDE.md` is copied to `CLAUDE.md.bak-<timestamp>` before being
+replaced.
 
 Claude Code settings are **merged**, not overwritten: an existing machine keeps
 its own plugins, marketplaces, env vars, hooks, and preferences, and this adds
@@ -175,6 +183,52 @@ The script is idempotent. Re-run it after any change to `manifest/`.
     catalogs go stale and bb's picker silently loses new models.
 16. Prints the remaining manual steps.
 
+## The proxy is load-bearing for the whole machine
+
+Read this before touching anything about the proxy.
+
+`ocx service` does two things beyond running a local server:
+
+- It sets `ANTHROPIC_BASE_URL` (and `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY`)
+  at the user level via `launchctl setenv`.
+- It installs an intercept proxy for `api.anthropic.com` on a local port.
+
+Both are machine-wide and persist across reboots. **If the proxy is not running,
+every Claude app started afterwards cannot reach Anthropic at all**, not just bb
+threads. That includes a fresh terminal, a newly launched editor, and any GUI
+Claude client.
+
+```bash
+ocx status                 # is it up
+ocx service                # install and start it as a launchd job (persistent)
+ocx service restart        # pick up a config change
+ocx stop                   # stop the proxy (then run ocx service to restore)
+```
+
+`bootstrap.sh` runs `ocx service` and confirms the proxy reports ready. If it
+cannot, the run says so plainly rather than continuing quietly.
+
+### After any proxy change, restart bb
+
+`ocx sync` refreshes the Codex catalog, but the running proxy's `/v1/models`,
+which is what Claude Code reads, only changes after `ocx service restart`. bb
+inherits `ANTHROPIC_BASE_URL` when it launches, so a bb that started before the
+proxy was configured keeps a stale environment and its Claude picker looks wrong
+until it is restarted.
+
+### Providers with no key
+
+A provider whose `apiKey` is unset still advertises every model it knows about.
+With two such providers, Claude Code listed around 740 models of which roughly
+640 could not answer. `bootstrap.sh` therefore marks a provider
+`"disabled": true` when its key is skipped, which keeps the settings but drops
+the provider out of routing and listings, and clears the flag when a key is
+entered. Editing the file by hand has the same effect, but needs
+`ocx service restart`.
+
+The `opencode-go` key is shared with the `opencode` CLI, so one prompt writes
+both `~/.opencodex/config.json` and `~/.config/opencode/opencode-api-key`.
+
 ## Keeping model selection fresh
 
 Two hourly mechanisms, installed by `bootstrap.sh`:
@@ -196,14 +250,25 @@ cron or a systemd timer; `verify.sh` reports a missing launchd job.
 All of these are logins, which cannot be scripted safely.
 
 ```bash
-codex                                    # sign in
+codex                                    # sign in; model-gap-check.sh reads this
 claude                                   # sign in
+ocx login codex                          # the ChatGPT account the proxy forwards
 devin auth login                         # Devin ACP agent, if used
 prime-agent                              # Prime Agent ACP agent, if used
-npm install -g @bitkyc08/opencodex       # if the proxy is wanted
-ocx service && ocx sync                  # start the proxy, pull the catalog
-bb provider list                         # confirm the provider list
+ocx sync                                 # pull the catalog into the proxy
 ```
+
+Then **restart bb**, so it picks up `ANTHROPIC_BASE_URL` from the proxy. A bb
+launched before the proxy was configured keeps a stale environment and its Claude
+picker will not show the gateway models.
+
+```bash
+bb provider list      # expect codex, claude-code, acp-opencode
+bb provider models claude-code | head
+```
+
+`acp-devin` and `acp-prime-agent` appear only once their own CLIs are installed
+and signed in. `verify.sh` reports those as skipped rather than failed.
 
 Optional, for phone access:
 
