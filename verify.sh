@@ -200,6 +200,40 @@ if command -v ocx >/dev/null; then
   else
     note "ANTHROPIC_BASE_URL is not set, so Claude apps are not routed through the proxy"
   fi
+  # A live request, because the stored account status can say "ok" while the
+  # credential itself has been invalidated. A stale ~/.codex/auth.json copied
+  # from another machine is the usual cause: the token looks present and is dead.
+  if command -v ocx >/dev/null 2>&1; then
+    sel="$(ocx account current openai 2>/dev/null | awk 'NR==2{print $3}')"
+    info_note="active openai account: ${sel:-unknown}"
+    note "$info_note"
+    mdl="$(bb provider models codex --json 2>/dev/null | python3 -c "
+import json,sys
+try:
+    ms=json.load(sys.stdin)
+    print(next((m['id'] for m in ms if m.get('isDefault')), ms[0]['id']))
+except Exception:
+    print('')" 2>/dev/null)"
+    if [ -n "$mdl" ]; then
+      code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 45 -X POST \
+        http://127.0.0.1:10100/v1/chat/completions \
+        -H 'content-type: application/json' \
+        -d "{\"model\":\"$mdl\",\"messages\":[{\"role\":\"user\",\"content\":\"ping\"}],\"max_tokens\":1}" 2>/dev/null || echo 000)"
+      case "$code" in
+        200) ok "a live request through the proxy succeeds (model $mdl)" ;;
+        401|403)
+          no "the proxy rejected the active codex credential (HTTP $code)"
+          note "sign in again on this machine: ocx login codex"
+          note "if a pool account exists: ocx account use openai <id> && ocx account priority openai main last"
+          note "do not copy ~/.codex/auth.json between machines; it is a per-machine credential" ;;
+        000) note "no answer from the proxy; check: ocx status" ;;
+        *)   note "the proxy answered HTTP $code for model $mdl; treat the credential as unproven" ;;
+      esac
+    else
+      note "could not determine a codex model to test with; the credential is unproven"
+    fi
+  fi
+
   CFG="$HOME/.opencodex/config.json"
   if [ -f "$CFG" ]; then
     perm="$(perm_of "$CFG")"
@@ -251,6 +285,26 @@ echo "Claude Code"
 python3 -c "
 import json;d=json.load(open('$HOME/.claude/settings.json'))
 print('  \033[32mPASS\033[0m  hooks wired: '+', '.join(d.get('hooks',{}))) if d.get('hooks') else print('  \033[31mFAIL\033[0m  no hooks in settings.json')" 2>/dev/null
+
+# Claude Code turns MCP tool search off by itself when ANTHROPIC_BASE_URL points
+# somewhere that is not Anthropic, which is exactly what the proxy makes it do.
+# With it off, every MCP tool schema is sent in the first request: measured at
+# 211k input tokens against 61k with the flag on, for the same one-word prompt.
+tool_search="$(python3 -c "
+import json,os
+p=os.path.expanduser('~/.claude/settings.json')
+try:
+    print(json.load(open(p)).get('env',{}).get('ENABLE_TOOL_SEARCH',''))
+except Exception:
+    print('')" 2>/dev/null)"
+if [ "$tool_search" = "true" ]; then
+  ok "ENABLE_TOOL_SEARCH is on"
+else
+  no "ENABLE_TOOL_SEARCH is not on in ~/.claude/settings.json"
+  note "with the proxy in front of Anthropic, tool search is otherwise disabled and"
+  note "every MCP tool schema is sent in the first request. Add:"
+  note '  "env": { "ENABLE_TOOL_SEARCH": "true" }'
+fi
 foreign_home "$HOME/.claude/settings.json" && { no "settings.json points at another Mac's home"; note "re-run bootstrap.sh"; }
 
 echo

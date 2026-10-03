@@ -32,6 +32,46 @@ Claude Code reads, only changes after `ocx service restart`. Restart bb too: it
 inherits `ANTHROPIC_BASE_URL` at launch, so a bb started before the proxy was
 configured keeps a stale environment and its Claude picker looks wrong.
 
+## Two traps the proxy creates on its own
+
+**Tool search silently turns itself off.** Claude Code disables MCP tool search
+(deferred tool loading) whenever `ANTHROPIC_BASE_URL` is not an Anthropic host,
+and ocx makes it point at `127.0.0.1:10100` for the whole user session. The
+symptom is not an error: every MCP tool schema goes into the first request.
+Measured through the proxy with one prompt, `claude -p "say ok"`:
+
+| `ENABLE_TOOL_SEARCH` | Input tokens |
+| --- | --- |
+| off (default under the proxy) | ~211k |
+| `true` | ~61k |
+
+Tool search works fine through the proxy; nothing about ocx breaks it. Force it
+on in `~/.claude/settings.json`:
+
+```json
+{ "env": { "ENABLE_TOOL_SEARCH": "true" } }
+```
+
+bb spawns Claude Code with `--setting-sources=user,project,local`, so bb threads
+inherit it. Check it before blaming a model or a plugin for a large first turn.
+Docs: `code.claude.com/docs/en/mcp` (Scale with MCP tool search) and
+`code.claude.com/docs/en/context-window`.
+
+**A codex credential copied from another machine 401s.** ocx selects the `main`
+account from `~/.codex/auth.json`. A stale copy looks valid and fails every
+request with `Your authentication token has been invalidated`, while the account
+status still reports `ok`, because that reflects stored state and not the
+credential. Sign in on the machine that will use it, then prove it with a real
+request rather than a status field:
+
+```bash
+ocx account current openai
+ocx account priority openai main last
+curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:10100/v1/chat/completions \
+  -H 'content-type: application/json' \
+  -d '{"model":"<a codex model>","messages":[{"role":"user","content":"ping"}],"max_tokens":1}'
+```
+
 ## Common operations (verified Sep 2026, ocx 2.63.0)
 
 | Task | Command |

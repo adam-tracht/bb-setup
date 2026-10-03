@@ -250,7 +250,7 @@ cron or a systemd timer; `verify.sh` reports a missing launchd job.
 All of these are logins, which cannot be scripted safely.
 
 ```bash
-codex                                    # sign in; model-gap-check.sh reads this
+codex                                    # sign in on THIS machine; model-gap-check.sh reads this
 claude                                   # sign in
 ocx login codex                          # the ChatGPT account the proxy forwards
 devin auth login                         # Devin ACP agent, if used
@@ -269,6 +269,25 @@ bb provider models claude-code | head
 
 `acp-devin` and `acp-prime-agent` appear only once their own CLIs are installed
 and signed in. `verify.sh` reports those as skipped rather than failed.
+
+### Never copy `~/.codex/auth.json` between machines
+
+It is a per-machine credential, and a stale copy is worse than none: the proxy
+selects the `main` account from it, the token looks present, and every request
+fails with `401 Your authentication token has been invalidated`. The account
+status bb and ocx report can still say `ok`, because it reflects stored state
+rather than the credential.
+
+Sign in fresh instead, and let `verify.sh` prove it with a real request:
+
+```bash
+ocx login codex
+ocx account current openai          # which credential is selected
+ocx account priority openai main last   # prefer a pool account over the app login
+ocx account use openai <pool-id>    # switch to a specific account
+```
+
+If a request 401s, fix the selection rather than the config.
 
 Optional, for phone access:
 
