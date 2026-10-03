@@ -97,10 +97,42 @@ info "bb $(bb --version 2>/dev/null || echo '?') at $(command -v bb)"
 # silently pins an older build. Everything below is for the tools bb does NOT
 # manage, and each is optional.
 step "Checking provider tooling"
-if command -v codex >/dev/null; then
+# codex is the default provider, and a plugin reads rate-limit credits through
+# `codex app-server`, so a machine without it is not a working setup.
+#
+# Ask bb to install it first, because bb places it in ~/.local/bin alongside
+# claude-code and updates it itself. Falling back to npm would put a second copy
+# on PATH that shadows the managed one.
+if command -v codex >/dev/null 2>&1; then
   info "codex $(codex --version 2>/dev/null | head -1) (bb manages this one)"
 else
-  warn "codex not on PATH. bb's Settings -> Machines installer provides it, or run: bb machine provider-cli install <machine> codex"
+  info "codex is not installed; asking bb to install it"
+  MACHINE_ID="$(bb machine list --json 2>/dev/null | python3 -c "
+import json,sys
+try:
+    d=json.load(sys.stdin)
+    ms=d if isinstance(d,list) else d.get('machines') or d.get('hosts') or []
+    print(ms[0].get('id','') if ms else '')
+except Exception:
+    print('')" 2>/dev/null)"
+  installed=0
+  if [ -n "$MACHINE_ID" ]; then
+    bb machine provider-cli install "$MACHINE_ID" codex --json >/dev/null 2>&1 && installed=1
+  fi
+  if [ "$installed" = 0 ] && [ "$DRY_RUN" = 0 ]; then
+    warn "bb could not install it; falling back to npm"
+    npm install -g @openai/codex >/dev/null 2>&1 && installed=1
+  fi
+  if [ "$installed" = 1 ] && command -v codex >/dev/null 2>&1; then
+    info "installed codex $(codex --version 2>/dev/null | head -1)"
+  elif [ "$DRY_RUN" = 1 ]; then
+    info "would install the codex CLI via bb, then npm as a fallback"
+  else
+    die "the codex CLI could not be installed. It is the default bb provider and a plugin reads rate-limit credits through it.
+  Install it with: bb machine provider-cli install $(bb machine list 2>/dev/null | awk 'NR==2{print $3}') codex
+  or: npm install -g @openai/codex
+  Then re-run this script."
+  fi
 fi
 if command -v claude >/dev/null; then
   info "claude $(claude --version 2>/dev/null | head -1) (bb manages this one)"
@@ -136,10 +168,36 @@ else
     || die "could not install @bitkyc08/opencodex. It is required: it proxies every routed model and sets ANTHROPIC_BASE_URL. Install it with: npm install -g @bitkyc08/opencodex"
 fi
 
-if command -v opencode >/dev/null; then
-  info "opencode present ($(opencode --version 2>/dev/null | head -1))"
+# opencode has to actually run, not merely exist. A binary copied from another
+# machine keeps its old code signature and is killed on launch, which leaves the
+# usage plugin logging query failures with no obvious cause. So execute it.
+opencode_runs() { command -v opencode >/dev/null 2>&1 && opencode --version >/dev/null 2>&1; }
+
+if opencode_runs; then
+  info "opencode present and running ($(opencode --version 2>/dev/null | head -1))"
+elif command -v opencode >/dev/null 2>&1; then
+  # On PATH but will not start. Installing over it replaces the broken binary.
+  warn "opencode is on PATH but does not run. A binary copied from another machine keeps its old code signature and is killed on launch."
+  if [ "$DRY_RUN" = 1 ]; then
+    info "would reinstall opencode-ai over the broken binary"
+  else
+    npm install -g opencode-ai >/dev/null 2>&1
+    if opencode_runs; then
+      info "reinstalled opencode ($(opencode --version 2>/dev/null | head -1))"
+    else
+      warn "still does not run. Install it with: curl -fsSL https://opencode.ai/install | bash -s -- --no-modify-path"
+    fi
+  fi
+elif [ "$DRY_RUN" = 1 ]; then
+  info "would install opencode-ai (the acp-opencode provider)"
 else
-  warn "opencode missing, so the acp-opencode provider is unavailable. Install with: npm install -g opencode-ai"
+  info "installing opencode-ai"
+  npm install -g opencode-ai >/dev/null 2>&1
+  if opencode_runs; then
+    info "installed opencode ($(opencode --version 2>/dev/null | head -1))"
+  else
+    warn "could not install opencode, so the acp-opencode provider is unavailable. Run: curl -fsSL https://opencode.ai/install | bash -s -- --no-modify-path"
+  fi
 fi
 
 # ------------------------------------------------------------- bb skills ---
@@ -397,27 +455,6 @@ else
   fi
 fi
 
-# -------------------------------------------------------------- opencode ---
-step "Installing opencode config"
-if [ "$DRY_RUN" = 0 ]; then mkdir -p "$HOME/.config/opencode"; fi
-if [ -f "$HOME/.config/opencode/opencode.json" ]; then
-  copy "$HOME/.config/opencode/opencode.json" "$HOME/.config/opencode/opencode.json.bak-$(date +%Y%m%d-%H%M%S)"
-fi
-put "$FILES/opencode/opencode.json" "$HOME/.config/opencode/opencode.json" 644
-# Repoint the {file:...} key references at this machine's home.
-if [ "$DRY_RUN" = 0 ]; then
-  python3 - "$HOME/.config/opencode/opencode.json" <<'PY'
-import json,os,re,sys
-p=sys.argv[1]
-raw=open(p).read()
-raw=re.sub(r'\{file:/Users/[^/]+/', '{file:'+os.path.expanduser('~')+'/', raw)
-open(p,'w').write(raw)
-json.load(open(p))  # fail loudly if the rewrite broke the JSON
-print('    key file paths repointed to '+os.path.expanduser('~'))
-PY
-fi
-info "opencode needs its key files: ~/.config/opencode/opencode-api-key and meta-api-key (section 6)"
-
 # ------------------------------------------------------------------- ocx ---
 step "Installing opencodex (ocx) proxy config"
 if [ "$DRY_RUN" = 0 ]; then mkdir -p "$HOME/.opencodex"; fi
@@ -561,6 +598,28 @@ elif command -v bb >/dev/null; then
      >/dev/null 2>&1 \
      && info "created bb automation 'Sync model catalogs'" \
      || warn "could not create the bb automation; see README for the command"
+fi
+
+# -------------------------------------------------------------- opencode ---
+step "Installing opencode config"
+if [ "$DRY_RUN" = 0 ]; then mkdir -p "$HOME/.config/opencode"; fi
+if [ -f "$HOME/.config/opencode/opencode.json" ]; then
+  copy "$HOME/.config/opencode/opencode.json" "$HOME/.config/opencode/opencode.json.bak-$(date +%Y%m%d-%H%M%S)"
+fi
+# Only the provider blocks whose key file actually exists are written. opencode
+# validates the whole config at once, so one {file:...} reference to a missing
+# file fails everything and `opencode models` lists nothing, which leaves bb's
+# acp-opencode provider showing zero models.
+write_opencode_config "$FILES/opencode/opencode.json" "$HOME/.config/opencode/opencode.json" | while read -r line; do info "$line"; done
+if [ "$DRY_RUN" = 0 ] && command -v opencode >/dev/null 2>&1; then
+  # The local models.dev cache ships nearly empty, so without a refresh the
+  # provider lists a fraction of the real roster until something else warms it.
+  if opencode models --refresh >/dev/null 2>&1; then
+    n="$(opencode models 2>/dev/null | grep -c . || true)"
+    info "opencode catalog refreshed (${n:-?} models listed)"
+  else
+    warn "could not refresh the opencode catalog; the picker may list few models until 'opencode models --refresh' succeeds"
+  fi
 fi
 
 # --------------------------------------------------------------- wrap up ---

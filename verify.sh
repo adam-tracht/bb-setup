@@ -272,6 +272,74 @@ else
 fi
 
 echo
+echo "CLI binaries run"
+# Executed, not merely found. A binary carried over from another machine keeps
+# its old code signature, is present, and is killed on launch; anything that only
+# checks for the file will call that healthy.
+for cli in codex claude ocx opencode; do
+  if ! command -v "$cli" >/dev/null 2>&1; then
+    no "$cli is not on PATH"
+    case "$cli" in
+      codex|claude) note "bb installs these: bb machine provider-cli install <machine> $cli" ;;
+      ocx) note "npm install -g @bitkyc08/opencodex" ;;
+      opencode) note "npm install -g opencode-ai, or curl -fsSL https://opencode.ai/install | bash -s -- --no-modify-path" ;;
+    esac
+  elif ! "$cli" --version >/dev/null 2>&1; then
+    no "$cli is on PATH but does not run"
+    note "a binary copied from another machine keeps its old code signature and is killed on launch"
+    note "reinstall it; for opencode: npm install -g opencode-ai"
+  else
+    ok "$cli runs ($("$cli" --version 2>/dev/null | head -1))"
+  fi
+done
+
+echo
+echo "opencode is usable"
+# opencode validates the entire config at once. One {file:...} reference to a key
+# file that does not exist fails the whole file, `opencode models` then lists
+# nothing, and bb's acp-opencode provider shows zero models with no error anywhere
+# pointing at the real cause. So parse the config and run the real command.
+if command -v opencode >/dev/null 2>&1; then
+  dangling="$(python3 -c "
+import json, os, re
+p = os.path.expanduser('~/.config/opencode/opencode.json')
+try:
+    cfg = json.load(open(p))
+except Exception as e:
+    print('unreadable: %s' % e); raise SystemExit
+bad = []
+for pid, blk in (cfg.get('provider') or {}).items():
+    ak = (blk.get('options') or {}).get('apiKey', '')
+    m = re.match(r'^\{file:(.+)\}$', ak)
+    if m and not os.path.exists(m.group(1)):
+        bad.append(pid)
+print(','.join(bad))" 2>/dev/null)"
+  if [ "${dangling#unreadable}" != "$dangling" ]; then
+    no "the opencode config could not be read ($dangling)"
+  elif [ -n "$dangling" ]; then
+    no "opencode.json points at missing key files for: $dangling"
+    note "opencode rejects the whole config when one file reference is missing, which empties the picker"
+    note "add the key, or remove that provider block, then: opencode models --refresh"
+  else
+    ok "every key file opencode.json references exists"
+  fi
+
+  out="$(opencode models 2>&1)"
+  if printf '%s' "$out" | grep -qi 'invalid\|bad file reference'; then
+    no "opencode rejects its own config"
+    printf '%s\n' "$out" | head -3 | sed 's/^/        /'
+  else
+    n="$(printf '%s' "$out" | grep -c . || true)"
+    if [ "${n:-0}" -gt 0 ]; then
+      ok "opencode lists ${n} models"
+    else
+      no "opencode lists no models"
+      note "the local catalog cache is often near-empty until: opencode models --refresh"
+    fi
+  fi
+fi
+
+echo
 echo "opencode keys"
 for k in opencode-api-key meta-api-key; do
   f="$HOME/.config/opencode/$k"

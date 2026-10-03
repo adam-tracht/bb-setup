@@ -129,3 +129,48 @@ if kept:
     print("left as the machine had them: %s" % ", ".join(sorted(kept)))
 ' "$1" "$2" "$3"
 }
+
+# Write the opencode config, dropping any provider block whose key file is absent.
+#
+# opencode validates the whole file at once: a single {file:...} reference to a
+# file that does not exist fails the entire config, so one missing key leaves
+# `opencode models` listing nothing and bb's opencode provider showing zero
+# models. Same principle as disabling an ocx provider whose key was skipped.
+write_opencode_config() { # write_opencode_config <src> <dst>
+  python3 -c '
+import json, os, re, sys
+
+src, dst = sys.argv[1], sys.argv[2]
+raw = open(src).read().replace("__HOME__", os.path.expanduser("~"))
+cfg = json.loads(raw)
+
+def key_path(block):
+    ak = (block.get("options") or {}).get("apiKey", "")
+    m = re.match(r"^\{file:(.+)\}$", ak)
+    return m.group(1) if m else None
+
+providers = cfg.get("provider", {})
+kept, dropped = {}, []
+for pid, block in providers.items():
+    p = key_path(block)
+    if p and not os.path.exists(p):
+        dropped.append(pid)
+        continue
+    kept[pid] = block
+
+cfg["provider"] = kept
+with open(dst, "w") as f:
+    json.dump(cfg, f, indent=2)
+    f.write("\n")
+os.chmod(dst, 0o644)
+
+if dropped:
+    print("omitted %s: no key file present" % ", ".join(sorted(dropped)))
+else:
+    print("all provider blocks written")
+if kept:
+    print("wrote %s with %s" % (dst, ", ".join(sorted(kept))))
+else:
+    print("wrote %s with no providers; opencode will list no models until a key is added" % dst)
+' "$1" "$2"
+}

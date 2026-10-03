@@ -173,10 +173,11 @@ The script is idempotent. Re-run it after any change to `manifest/`.
 12. **Claude Code.** Installs `CLAUDE.md`, hooks, reference docs, scripts, and
     statusline, then merges `settings.json` while preserving existing keys and
     unioning permission lists.
-13. **opencode.** Installs the provider config, backing up any existing file, and
-    repoints key-file references at the local home directory.
-14. **opencodex.** Installs the redacted proxy config when none exists, then
-    prompts for API keys with hidden input and writes them mode 600.
+13. **opencodex.** Installs the redacted proxy config when none exists, prompts
+    for API keys with hidden input, writes them mode 600, and starts the proxy
+    service. The prompt also creates the opencode key file.
+14. **opencode.** Writes the provider config, keeping only the provider blocks
+    whose key file exists, then refreshes the model catalog.
 15. **Scheduled model-catalog maintenance.** Installs `catalog-maintenance.sh`
     and `model-gap-check.sh` into `~/.opencodex/`, loads the hourly launchd job,
     and creates the `Sync model catalogs` bb automation. Without this the
@@ -216,6 +217,27 @@ inherits `ANTHROPIC_BASE_URL` when it launches, so a bb that started before the
 proxy was configured keeps a stale environment and its Claude picker looks wrong
 until it is restarted.
 
+### The opencode config is all-or-nothing
+
+`~/.config/opencode/opencode.json` is validated as a whole. If any provider block
+references a key file with `{file:...}` and that file does not exist, opencode
+rejects the entire config, `opencode models` lists nothing, and bb's
+`acp-opencode` provider shows zero models with no error pointing at the cause.
+
+`bootstrap.sh` therefore writes only the provider blocks whose key file actually
+exists, and `verify.sh` parses the config for dangling references before running
+the real command. Omitted blocks are reported by name.
+
+Two related steps in the same place:
+
+- `opencode models --refresh` runs after install. The local catalog cache is
+  often near-empty on a fresh machine, so the picker lists a fraction of the
+  real roster until something warms it.
+- The `opencode-go` key is shared with the `opencode` CLI, so one prompt writes
+  both `~/.opencodex/config.json` and `~/.config/opencode/opencode-api-key`.
+  Because that prompt belongs to the proxy step, the opencode config is written
+  afterwards, once the key file exists.
+
 ### Providers with no key
 
 A provider whose `apiKey` is unset still advertises every model it knows about.
@@ -225,9 +247,6 @@ With two such providers, Claude Code listed around 740 models of which roughly
 the provider out of routing and listings, and clears the flag when a key is
 entered. Editing the file by hand has the same effect, but needs
 `ocx service restart`.
-
-The `opencode-go` key is shared with the `opencode` CLI, so one prompt writes
-both `~/.opencodex/config.json` and `~/.config/opencode/opencode-api-key`.
 
 ## Keeping model selection fresh
 
