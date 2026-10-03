@@ -376,6 +376,32 @@ fi
 foreign_home "$HOME/.claude/settings.json" && { no "settings.json points at another Mac's home"; note "re-run bootstrap.sh"; }
 
 echo
+echo "bundled scripts match the bb schema"
+# The claude-session-import script reads bb's SQLite directly, and its columns
+# have been removed twice (workspace_provision_type, then managed). A stale
+# reference only fails in --apply, after the whole run has been assembled, so it
+# rolls back silently. Exercise the query path read-only instead of waiting for
+# that.
+IMP="$FILES/bb-skills/claude-session-import/scripts/import_claude_sessions.py"
+if [ -f "$IMP" ] && command -v bb >/dev/null 2>&1; then
+  if python3 -c "
+import importlib.util, sqlite3, sys, time
+spec = importlib.util.spec_from_file_location('imp', sys.argv[1])
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+db = sqlite3.connect('file:%s/bb.db?mode=ro' % sys.argv[2], uri=True)
+env, _ = m.resolve_environment(db, 'proj_personal', int(time.time() * 1000))
+sys.exit(0 if env else 1)
+" "$IMP" "$BB_DATA" >/dev/null 2>&1; then
+    ok "the session importer resolves a workspace against this bb schema"
+  else
+    no "the session importer fails against this bb schema"
+    note "it queries bb.db directly, so a removed column breaks it; the fix belongs in"
+    note "files/bb-skills/claude-session-import/scripts/import_claude_sessions.py"
+  fi
+fi
+
+echo
 echo "secrets hygiene (this repo)"
 # A credential is a literal secret value. A "{file:...}" reference is a pointer
 # to a key file, and "<redacted>" is the placeholder: neither is a leak.

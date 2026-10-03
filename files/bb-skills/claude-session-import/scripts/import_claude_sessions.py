@@ -634,6 +634,11 @@ def new_environment_id() -> str:
     return "env_" + secrets.token_hex(5)
 
 
+def environment_columns(db: sqlite3.Connection) -> set:
+    """Column names of the environments table in this database."""
+    return {str(row[1]) for row in db.execute("PRAGMA table_info(environments)")}
+
+
 def resolve_environment(db: sqlite3.Connection, project_id: str, now: int) -> Tuple[Optional[str], bool]:
     """Return (environment_id, created) for a ready workspace hosting the project.
 
@@ -644,13 +649,28 @@ def resolve_environment(db: sqlite3.Connection, project_id: str, now: int) -> Tu
     workspace can be resolved; the thread is then imported unattached and the
     caller should surface a warning.
     """
+    # bb has changed this table twice: workspace_provision_type and managed were
+    # both removed, and the personal/unmanaged distinction now lives in the
+    # environment provider columns. Read the columns this database actually has
+    # rather than assuming a version, so the script keeps working across upgrades.
+    cols = environment_columns(db)
+    legacy = "workspace_provision_type" in cols
+
     if project_id == "proj_personal":
-        row = db.execute(
-            "SELECT id FROM environments WHERE project_id = ? AND workspace_provision_type = 'personal' AND status = 'ready' ORDER BY updated_at DESC LIMIT 1",
-            (project_id,),
-        ).fetchone()
-        if row:
-            return str(row[0]), False
+        if legacy:
+            kind = "workspace_provision_type = 'personal'"
+        elif "environment_provider_id" in cols:
+            kind = "environment_provider_id = 'personal-workspace'"
+        else:
+            kind = None
+        if kind:
+            row = db.execute(
+                "SELECT id FROM environments WHERE project_id = ? AND %s AND status = 'ready' "
+                "ORDER BY updated_at DESC LIMIT 1" % kind,
+                (project_id,),
+            ).fetchone()
+            if row:
+                return str(row[0]), False
         row = db.execute(
             "SELECT id FROM environments WHERE project_id = ? AND status = 'ready' ORDER BY updated_at DESC LIMIT 1",
             (project_id,),
@@ -659,15 +679,24 @@ def resolve_environment(db: sqlite3.Connection, project_id: str, now: int) -> Tu
             return str(row[0]), False
         return None, False
 
+    # Match by path, not by provision type. bb now provisions a
+    # project-checkout environment for repository projects, so insisting on an
+    # "unmanaged" row finds nothing and the insert then collides with the
+    # existing (project_id, host_id, path) row. Any ready environment at the
+    # project checkout is the right one to attach to.
+    source_path = project_source_path(db, project_id)
+    if source_path:
+        row = db.execute(
+            "SELECT id FROM environments WHERE project_id = ? AND path = ? AND status = 'ready' LIMIT 1",
+            (project_id, source_path),
+        ).fetchone()
+        if row:
+            return str(row[0]), False
     rows = db.execute(
-        "SELECT id, path FROM environments WHERE project_id = ? AND workspace_provision_type = 'unmanaged' AND status = 'ready' ORDER BY path",
+        "SELECT id, path FROM environments WHERE project_id = ? AND status = 'ready' ORDER BY path",
         (project_id,),
     ).fetchall()
-    source_path = project_source_path(db, project_id)
     if rows:
-        for env_id, env_path in rows:
-            if env_path and source_path and str(env_path) == source_path:
-                return str(env_id), False
         return str(rows[0][0]), False
 
     host_id = local_host_id(db)
@@ -675,14 +704,27 @@ def resolve_environment(db: sqlite3.Connection, project_id: str, now: int) -> Tu
         return None, False
     env_id = new_environment_id()
     is_git = bool(source_path and os.path.isdir(os.path.join(source_path, ".git")))
+    # Both managed and workspace_provision_type were removed from environments, so
+    # name only the columns this database still has. Leaving provider columns null
+    # is what marks the row as an unmanaged checkout.
+    wanted = ["id", "project_id", "host_id", "path", "is_git_repo", "branch_name",
+              "status", "created_at", "updated_at"]
+    present = [c for c in wanted if c in cols]
+    values = {
+        "id": env_id,
+        "project_id": project_id,
+        "host_id": host_id,
+        "path": source_path,
+        "is_git_repo": int(is_git),
+        "branch_name": git_branch(source_path),
+        "status": "ready",
+        "created_at": now,
+        "updated_at": now,
+    }
     db.execute(
-        """
-        INSERT INTO environments
-          (id, project_id, host_id, path, managed, is_git_repo, branch_name,
-           workspace_provision_type, status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, 0, ?, ?, 'unmanaged', 'ready', ?, ?)
-        """,
-        (env_id, project_id, host_id, source_path, int(is_git), git_branch(source_path), now, now),
+        "INSERT INTO environments (%s) VALUES (%s)"
+        % (", ".join(present), ", ".join("?" for _ in present)),
+        [values[c] for c in present],
     )
     return env_id, True
 
