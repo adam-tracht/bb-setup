@@ -67,6 +67,33 @@ def request_id(seed: int) -> str:
     return "creq_" + suffix
 
 
+def turn_request_data(
+    turn: Dict[str, str], blocks: List[Dict[str, str]], first: bool
+) -> Dict[str, Any]:
+    """Client turn request payload matching bb's turnRequestEventDataSchema."""
+    return {
+        "direction": "outbound",
+        "requestId": turn["request_id"],
+        "source": "spawn" if first else "tell",
+        "initiator": "user",
+        "senderThreadId": None,
+        "input": [
+            {"type": "text", "text": block.get("text", ""), "mentions": []}
+            for block in blocks
+            if block.get("text")
+        ],
+        "target": {"kind": "thread-start" if first else "new-turn"},
+        "request": {"method": "thread/start" if first else "turn/start", "params": {}},
+        "execution": {
+            "model": CLAUDE_CODE_DEFAULT_MODEL,
+            "permissionMode": "accept-edits",
+            "reasoningLevel": "medium",
+            "serviceTier": "default",
+            "source": "client/turn/requested",
+        },
+    }
+
+
 def result_text(value: Any) -> str:
     if isinstance(value, str):
         return value
@@ -126,6 +153,11 @@ def entry_parts(entry: Dict[str, Any]) -> List[str]:
     parts: List[str] = []
     for event in entry["events"]:
         event_type = event["type"]
+        if event_type == "client/turn/requested":
+            for part in event["data"].get("input", []):
+                if part.get("type") == "text":
+                    parts.append("T:" + part.get("text", ""))
+            continue
         if event_type not in ("item/started", "item/completed"):
             continue
         item = event["data"].get("item", {})
@@ -156,6 +188,15 @@ def thread_parts(db: sqlite3.Connection, thread_id: str) -> List[str]:
     ).fetchall()
     parts: List[str] = []
     for event_type, item_kind, data in rows:
+        if event_type == "client/turn/requested":
+            try:
+                payload = json.loads(data)
+            except (TypeError, ValueError):
+                continue
+            for part in payload.get("input", []):
+                if part.get("type") == "text":
+                    parts.append("T:" + part.get("text", ""))
+            continue
         if event_type not in ("item/started", "item/completed"):
             continue
         try:
@@ -351,13 +392,24 @@ def build_entry(
     records: List[Dict[str, Any]],
     parse_errors: int,
     project_id: str,
+    source: Optional[str] = None,
+    members: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
-    source = source_key(path, root, records)
+    source = source or source_key(path, root, records)
     source_mtime = int(path.stat().st_mtime_ns // 1_000_000)
     fallback_time = source_mtime
     raw_times = [iso_ms(record.get("timestamp"), fallback_time) for record in records]
     created_at = min(raw_times) if raw_times else fallback_time
-    updated_at = max(max(raw_times) if raw_times else fallback_time, source_mtime)
+    # Content freshness is the newest record timestamp, which is what the
+    # imported events carry. Mixing in the file mtime (directly, or through the
+    # fallback for records that carry no timestamp) would make a thread look
+    # permanently stale and trigger a replace on every run.
+    stamp_times = [
+        iso_ms(record.get("timestamp"), 0)
+        for record in records
+        if isinstance(record.get("timestamp"), str) and record.get("timestamp")
+    ]
+    updated_at = max(stamp_times) if stamp_times else fallback_time
     cwd = first_cwd(records)
     title = custom_title(records)
     first_prompt = next(
@@ -498,14 +550,28 @@ def build_entry(
             ensure_thread(timestamp)
             close_turn(timestamp)
             turn = start_turn(timestamp)
-            add_event(events, "turn/input/accepted", "turn", turn["turn_id"], source, {"clientRequestId": turn["request_id"]}, timestamp)
-            item = {
-                "type": "userMessage",
-                "id": item_id(source, record, index, 0),
-                "content": blocks,
-                "clientRequestId": turn["request_id"],
-            }
-            add_event(events, "item/completed", "turn", turn["turn_id"], source, {"item": item}, timestamp, item)
+            add_event(
+                events,
+                "turn/input/accepted",
+                "turn",
+                turn["turn_id"],
+                source,
+                {"clientRequestId": turn["request_id"]},
+                timestamp,
+            )
+            # bb only renders a visible user bubble for a client turn request.
+            # A provider-emitted userMessage item is projected as a system
+            # initiator steer and folded into the turn summary, which is why
+            # imported prompts used to be invisible.
+            add_event(
+                events,
+                "client/turn/requested",
+                "thread",
+                None,
+                source,
+                turn_request_data(turn, blocks, turn_number == 1),
+                timestamp,
+            )
 
         for block_index, block in enumerate(tool_results):
             tool_key = str(block.get("tool_use_id") or item_id(source, record, index, block_index))
@@ -530,14 +596,17 @@ def build_entry(
         {"source_kind": "title", "source_key": "title", "source_seq": None, "text": display_title}
     ]
     for sequence, event in enumerate(events, start=1):
+        if event["type"] != "client/turn/requested":
+            continue
+        text = "\n".join(
+            part.get("text", "") for part in event["data"].get("input", [])
+        ).strip()
+        if text:
+            segments.append({"source_kind": "user_message", "source_key": f"event:{sequence}", "source_seq": sequence, "text": text})
         if event["type"] != "item/completed":
             continue
         item = event["data"].get("item", {})
-        if item.get("type") == "userMessage":
-            text = "\n".join(block.get("text", "") for block in item.get("content", [])).strip()
-            if text:
-                segments.append({"source_kind": "user_message", "source_key": f"event:{sequence}", "source_seq": sequence, "text": text})
-        elif item.get("type") == "agentMessage" and item.get("text"):
+        if item.get("type") == "agentMessage" and item.get("text"):
             segments.append({"source_kind": "assistant_message", "source_key": f"event:{sequence}", "source_seq": sequence, "text": item["text"]})
 
     return {
@@ -552,7 +621,118 @@ def build_entry(
         "events": events,
         "segments": segments,
         "parse_errors": parse_errors,
+        "resume_parent_uuid": resume_parent_uuid(records),
+        "member_sources": members if members is not None else [source],
     }
+
+
+def first_timestamp(records: Iterable[Dict[str, Any]]) -> Optional[str]:
+    for record in records:
+        value = record.get("timestamp")
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
+def resume_parent_uuid(records: Iterable[Dict[str, Any]]) -> Optional[str]:
+    """Uuid of the record this session's first content record continues from.
+
+    Claude Code starts a fresh transcript file when a conversation is resumed
+    or a compaction boundary is crossed. The new file's first user record is a
+    generated "This session is being continued..." summary whose parentUuid
+    points at the last record of the session it continues.
+    """
+    for record in records:
+        if record.get("type") != "user":
+            continue
+        parent = record.get("parentUuid")
+        return parent if isinstance(parent, str) and parent else None
+    return None
+
+
+def chain_roots(
+    candidates: List[Tuple[Path, List[Dict[str, Any]], int]]
+) -> Dict[str, List[int]]:
+    """Group candidate files into resume chains keyed by root source key.
+
+    A file whose first content record continues a uuid owned by another
+    candidate belongs to that candidate's chain. The root's session id names
+    the chain, so every file in a conversation maps to one bb thread. Cycles
+    (mutual copies) fall back to each file being its own root.
+
+    Two files can claim the same anchor uuid: those are sibling forks of one
+    conversation, not a chain. Only the largest sibling continues the parent;
+    the others stay separate roots so snapshot/containment logic can drop them
+    instead of interleaving two divergent branches into one thread.
+    """
+    owners: Dict[str, List[int]] = defaultdict(list)
+    for index, (_, records, _) in enumerate(candidates):
+        for record in records:
+            value = record.get("uuid")
+            if isinstance(value, str) and value:
+                owners[value].append(index)
+
+    anchors: Dict[int, str] = {}
+    for index, (_, records, _) in enumerate(candidates):
+        anchor = resume_parent_uuid(records)
+        if anchor:
+            anchors[index] = anchor
+
+    claimants: Dict[str, List[int]] = defaultdict(list)
+    for index, anchor in anchors.items():
+        claimants[anchor].append(index)
+
+    def content_weight(index: int) -> int:
+        return len(
+            {
+                record.get("uuid")
+                for record in candidates[index][1]
+                if isinstance(record.get("uuid"), str)
+            }
+        )
+
+    parent_of: Dict[int, int] = {}
+    detached: List[int] = []
+    for anchor, indexes in claimants.items():
+        if len(indexes) > 1:
+            # Sibling forks all continue the same parent. The most complete one
+            # carries the chain forward; the others stand alone and are dropped
+            # later only if their content is genuinely contained in another.
+            ordered = sorted(indexes, key=lambda i: (-content_weight(i), i))
+            detached.extend(ordered[1:])
+            indexes = ordered[:1]
+        index = indexes[0]
+        options = [owner for owner in owners.get(anchor, []) if owner != index]
+        if options:
+            parent_of[index] = max(options, key=lambda o: (content_weight(o), -o))
+
+    def root_of(index: int) -> int:
+        seen = {index}
+        current = index
+        while current in parent_of:
+            current = parent_of[current]
+            if current in seen:
+                return index
+            seen.add(current)
+        return current
+
+    chains: Dict[int, List[int]] = defaultdict(list)
+    for index in range(len(candidates)):
+        chains[root_of(index)].append(index)
+
+    # Name each chain after its earliest session, which is the conversation's
+    # real opening, rather than whichever file the parent walk landed on.
+    named: Dict[str, List[int]] = {}
+    for members in chains.values():
+        first = min(
+            members,
+            key=lambda i: (
+                iso_ms(first_timestamp(candidates[i][1]), 0),
+                -content_weight(i),
+            ),
+        )
+        named[raw_session_id(candidates[first][0], candidates[first][1])] = members
+    return named
 
 
 def local_cutoff(args: argparse.Namespace) -> Tuple[float, str]:
@@ -729,6 +909,52 @@ def resolve_environment(db: sqlite3.Connection, project_id: str, now: int) -> Tu
     return env_id, True
 
 
+def thread_reflects_entry(
+    db: sqlite3.Connection, thread_id: str, entry: Dict[str, Any]
+) -> bool:
+    """True when the thread already holds this entry's conversation content.
+
+    Compares the canonical part stream rather than timestamps: the transcript
+    can carry records that produce no bb events, so an event timestamp can
+    never prove the thread is current, and a stale-looking timestamp would
+    rewrite the thread on every run.
+    """
+    stored = thread_parts(db, thread_id)
+    incoming = entry_parts(entry)
+    if not incoming:
+        return True
+    if len(stored) == len(incoming) and stored == incoming:
+        return True
+    # A longer stored stream means the thread already has everything plus more.
+    return len(stored) > len(incoming) and contained_in(incoming, stored)
+
+
+def native_event_count(db: sqlite3.Connection, thread_id: str) -> int:
+    """Count events bb itself wrote into an imported thread.
+
+    Everything this script writes is namespaced: event ids start with
+    `evt_claude_`, and turn ids with `turn_<hash>_`. Anything else is native bb
+    work (a turn the user ran against the imported session) and must never be
+    purged by a replace or a duplicate cleanup.
+    """
+    return db.execute(
+        """
+        SELECT COUNT(*) FROM events
+        WHERE thread_id = ?
+          AND id NOT LIKE 'evt_claude_%'
+          AND (turn_id IS NULL OR turn_id NOT LIKE 'turn\\_%' ESCAPE '\\')
+        """,
+        (thread_id,),
+    ).fetchone()[0]
+
+
+def thread_client_request_count(db: sqlite3.Connection, thread_id: str) -> int:
+    return db.execute(
+        "SELECT COUNT(*) FROM events WHERE thread_id = ? AND type = 'client/turn/requested'",
+        (thread_id,),
+    ).fetchone()[0]
+
+
 def existing_threads(db: sqlite3.Connection) -> Tuple[Dict[str, List[Dict[str, Any]]], set]:
     """Return (import-owned threads by provider session id, provider session ids already
     owned by a native, non-imported bb thread).
@@ -783,6 +1009,9 @@ def schema_check(db: sqlite3.Connection) -> None:
 def purge_children(db: sqlite3.Connection, thread_id: str) -> None:
     db.execute("DELETE FROM thread_search_segments WHERE thread_id = ?", (thread_id,))
     db.execute("DELETE FROM events WHERE thread_id = ?", (thread_id,))
+    # The cached conversation projection is keyed to the old event count; bb
+    # would keep rendering the previous shape until it is rebuilt.
+    db.execute("DELETE FROM thread_conversation_outlines WHERE thread_id = ?", (thread_id,))
 
 
 def insert_entry(
@@ -878,11 +1107,62 @@ def main() -> int:
     schema_check(db)
     roots = project_roots(db)
     candidates, files_seen, duplicate_files = discover(args.claude_projects, cutoff, args.include_subagents)
-    all_entries = [
-        build_entry(path, args.claude_projects, records, parse_errors, project_for_cwd(first_cwd(records), roots))
-        for path, records, parse_errors in candidates
-    ]
+    all_entries = []
+    chains = chain_roots(candidates)
+    for root_source, members in chains.items():
+        # Oldest first so the conversation's real opening leads the thread.
+        # Fork copies share a start instant; the longer one goes first so its
+        # records claim the shared uuids and nothing lands out of order.
+        members.sort(
+            key=lambda i: (
+                iso_ms(first_timestamp(candidates[i][1]), 0),
+                -len(candidates[i][1]),
+            )
+        )
+        records: List[Dict[str, Any]] = []
+        errors = 0
+        seen_uuids: set = set()
+        for index in members:
+            _, member_records, member_errors = candidates[index]
+            errors += member_errors
+            for record in member_records:
+                value = record.get("uuid")
+                if isinstance(value, str) and value:
+                    if value in seen_uuids:
+                        continue
+                    seen_uuids.add(value)
+                records.append(record)
+        path = candidates[members[0]][0]
+        all_entries.append(
+            build_entry(
+                path,
+                args.claude_projects,
+                records,
+                errors,
+                project_for_cwd(first_cwd(records), roots),
+                source=root_source,
+                members=[source_key(candidates[i][0], args.claude_projects, candidates[i][1]) for i in members],
+            )
+        )
     entries, snapshot_skipped = filter_snapshots(all_entries)
+    # A resume fork is a conversation that starts from a compaction summary.
+    # When one chain's content fully contains another's, the smaller thread is
+    # redundant and is dropped so the merged thread is the only copy.
+    parts_by_source = {entry["source_key"]: entry_parts(entry) for entry in entries}
+    surviving: List[Dict[str, Any]] = []
+    for entry in entries:
+        parts = parts_by_source[entry["source_key"]]
+        covered = len(parts) >= 10 and any(
+            other != entry["source_key"]
+            and len(other_parts) >= len(parts)
+            and contained_in(parts, other_parts)
+            for other, other_parts in parts_by_source.items()
+        )
+        if covered:
+            snapshot_skipped += 1
+            continue
+        surviving.append(entry)
+    entries = surviving
     skip_titles_path = args.skip_titles_file or (Path(__file__).resolve().parent / "skip-titles.txt")
     entries, title_skipped = filter_skip_titles(entries, load_skip_titles(skip_titles_path))
     existing, native_provider_ids = existing_threads(db)
@@ -899,8 +1179,7 @@ def main() -> int:
             existing_thread_parts[(title, created // 5000)].append((thread_id, parts))
     filtered_entries: List[Dict[str, Any]] = []
     for entry in entries:
-        source = entry["source_key"]
-        if source in existing_session_ids:
+        if any(member in existing_session_ids for member in entry["member_sources"]):
             filtered_entries.append(entry)
             continue
         entry_key = (entry["title"], entry["created_at"] // 5000)
@@ -918,6 +1197,7 @@ def main() -> int:
     new_threads = 0
     duplicate_existing = 0
     skipped_native = 0
+    protected_threads = 0
     parse_errors = sum(entry["parse_errors"] for entry in entries)
 
     for entry in entries:
@@ -925,15 +1205,44 @@ def main() -> int:
             actions.append({"entry": entry, "action": "skip_native", "thread_id": None, "remove_ids": []})
             skipped_native += 1
             continue
-        matches = existing.get(entry["source_key"], [])
-        primary = max(matches, key=lambda row: (row["content_at"] or 0, row["updated_at"] or 0, row["id"])) if matches else None
+        # A merged chain can match several previously imported threads (one per
+        # session file before merging existed). Keep one, retire the rest.
+        matches: List[Dict[str, Any]] = []
+        for member in entry["member_sources"]:
+            matches.extend(existing.get(member, []))
+        primary = None
+        if matches:
+            canonical = canonical_thread_id(entry["source_key"])
+            primary = next((row for row in matches if row["id"] == canonical), None) or max(
+                matches, key=lambda row: (row["content_at"] or 0, row["updated_at"] or 0, row["id"])
+            )
         remove_ids = [row["id"] for row in matches if primary and row["id"] != primary["id"]]
         duplicate_existing += len(remove_ids)
+        superseded = sorted(
+            row["id"]
+            for row in matches
+            if row["id"] in remove_ids and native_event_count(db, row["id"]) == 0
+        )
+        # Never purge or overwrite a thread that has acquired native bb work
+        # (a turn the user ran in bb against the imported session). Such a thread
+        # is left untouched and the entry is skipped.
+        protected = [
+            row["id"] for row in matches if native_event_count(db, row["id"]) > 0
+        ]
+        if protected:
+            actions.append({"entry": entry, "action": "skip_protected", "thread_id": protected[0], "remove_ids": []})
+            protected_threads += 1
+            continue
         if primary is None:
             action = "new"
             thread_id = canonical_thread_id(entry["source_key"])
             new_threads += 1
-        elif entry["updated_at"] > (primary["content_at"] or 0):
+        elif not thread_reflects_entry(db, primary["id"], entry):
+            # Compare content, not timestamps. A session whose records carry no
+            # conversation events has an event stream that cannot express its own
+            # freshness, so a timestamp test would replace it on every run.
+            # Content also covers the older shape where prompts were provider
+            # userMessage items, which bb renders as hidden system steers.
             action = "replace"
             thread_id = primary["id"]
             replacements += 1
@@ -941,7 +1250,7 @@ def main() -> int:
             action = "unchanged"
             thread_id = primary["id"]
             unchanged += 1
-        actions.append({"entry": entry, "action": action, "thread_id": thread_id, "remove_ids": remove_ids})
+        actions.append({"entry": entry, "action": action, "thread_id": thread_id, "remove_ids": superseded})
 
     summary = {
         "cutoff": cutoff_iso,
@@ -953,10 +1262,11 @@ def main() -> int:
         "title_skipped": title_skipped,
         "existing_duplicate_threads": duplicate_existing,
         "skipped_native_threads": skipped_native,
+        "skipped_protected_threads": protected_threads,
         "new_threads": new_threads,
         "replacements_with_newer_source": replacements,
         "unchanged_existing": unchanged,
-        "events_to_write": sum(len(action["entry"]["events"]) for action in actions if action["action"] not in ("unchanged", "skip_native")),
+        "events_to_write": sum(len(action["entry"]["events"]) for action in actions if action["action"] not in ("unchanged", "skip_native", "skip_protected")),
         "search_segments_to_write": sum(len(action["entry"]["segments"]) for action in actions if action["action"] not in ("unchanged", "skip_native")),
         "json_parse_errors": parse_errors,
         "threads_needing_attach": db.execute(
@@ -975,10 +1285,12 @@ def main() -> int:
         db.execute("BEGIN IMMEDIATE")
         for action in actions:
             entry = action["entry"]
+            if action["action"] == "skip_protected":
+                continue
             for duplicate_id in action["remove_ids"]:
                 purge_children(db, duplicate_id)
                 db.execute("DELETE FROM threads WHERE id = ?", (duplicate_id,))
-            if action["action"] in ("unchanged", "skip_native"):
+            if action["action"] in ("unchanged", "skip_native", "skip_protected"):
                 continue
             environment_id, created = resolve_environment(db, entry["project_id"], now)
             if environment_id is None:
@@ -1027,6 +1339,7 @@ def main() -> int:
                 "applied_new": new_threads,
                 "applied_replacements": replacements,
                 "removed_existing_duplicates": duplicate_existing,
+                "skipped_protected": protected_threads,
                 "environments_created": environments_created,
                 "healed_environment": healed_environment,
                 "healed_model": healed_model,

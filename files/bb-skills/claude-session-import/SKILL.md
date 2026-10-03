@@ -27,10 +27,26 @@ local event store consistently; do not recreate the importer ad hoc.
   `--skip-titles-file <path>` to use a different file.
 - Claude's fork/resume flow writes new session files that copy the original
   conversation's start, so one conversation can appear as several session
-  files. The helper deduplicates these: entries fully contained in a longer
-  sibling with the same title and start time are skipped as snapshots
-  (reported as `snapshot_duplicates_skipped`), while genuinely diverged forks
-  are imported. Tiny entries (freshly started or failed runs) are always kept.
+  files. Entries fully contained in another entry (same conversation root, or
+  any entry once chains are merged) are dropped as redundant snapshots
+  (reported as `snapshot_duplicates_skipped`); genuinely diverged forks are
+  imported. Tiny entries (freshly started or failed runs) are always kept.
+- User prompts are written as `client/turn/requested` events paired with
+  `turn/input/accepted`, never as provider `userMessage` items. bb renders a
+  visible user bubble only for a client turn request; a provider userMessage
+  item is projected as a system-initiator steer and folded into the turn
+  summary, which makes the prompt invisible. The first prompt of a thread uses
+  `target.kind = "thread-start"`, later ones `"new-turn"`.
+- Resume and compaction chains are merged into one thread. Claude Code starts a
+  new transcript file when a conversation is resumed; the new file's first user
+  record is a generated "This session is being continued..." summary whose
+  `parentUuid` points into the file it continues. The importer follows that
+  link, concatenates each chain oldest-first with `uuid` deduplication, and
+  names the thread after the chain's earliest session, so a conversation's real
+  opening leads its thread. Sibling forks (several files claiming the same
+  anchor) do not extend the chain; the most complete one continues the parent
+  and the others stay separate entries, dropped only when their content is
+  genuinely contained in another entry.
 - Imported threads are attached to a ready workspace so they can be messaged
   immediately: personal-project threads use the most recently used ready
   personal workspace, and repository threads use an unmanaged environment at
@@ -102,7 +118,12 @@ used a different source path.
    delete by a broad title or project match, and never delete subagents unless
    they were explicitly included in the requested scope.
 7. Verify imported counts, zero unintended duplicates, the cutoff boundary,
-   and at least one representative thread with `bb thread log --json`.
+   and at least one representative thread with `bb thread log --json`. Every
+   imported thread must contain `client/turn/requested` events, one per user
+   prompt, each with a `creq_` request id that a `turn/input/accepted` event in
+   the same thread references. A replace clears the thread's cached
+   `thread_conversation_outlines` row, because that projection is keyed to the
+   old event count and would otherwise keep rendering the previous shape.
 
 ## Reporting
 
@@ -112,3 +133,18 @@ snapshot duplicates skipped, environments created, threads healed
 (environment/model), events backfilled, and any deletions. Include the backup
 path after mutations. If the UI has not refreshed, tell the user to refresh bb;
 the CLI is the source of truth for verification.
+
+## Protecting live work
+
+A thread can stop being a pure import: the user may message it inside bb, which
+writes native turns onto it. A later import must never destroy that. Every event
+this script writes is namespaced (`evt_claude_*` ids, `turn_<hash>_*` turn ids),
+so `native_event_count()` identifies foreign events on an imported thread. Any
+matched thread with native events is reported as `skipped_protected_threads` and
+left entirely alone, including its duplicate siblings.
+
+Replacement decisions compare the canonical part stream, not timestamps. A
+transcript can contain records that produce no bb events, so an event timestamp
+can never demonstrate that a thread is current, and a timestamp comparison
+replaced the same thread on every run. `thread_reflects_entry()` answers the
+question directly: does the stored stream already contain this entry's content?
